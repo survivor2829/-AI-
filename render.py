@@ -1,7 +1,8 @@
 """
 产品详情页自动生成工具
-用法: python render.py [config.json] [--scale 1|2]
+用法: python generate.py [config.json] [--scale 1|2]
 """
+import re
 import json
 import sys
 import os
@@ -13,6 +14,10 @@ BASE_DIR = Path(__file__).parent
 OUTPUT_DIR = BASE_DIR / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+# 第2、4屏固定图片默认路径（config 未填时使用）
+DEFAULT_SCREEN2 = r"C:\Users\28293\Desktop\demo\扫地车\详情\DW2000B-Plus新扫地车详情页-260312_02.jpg"
+DEFAULT_SCREEN4 = r"C:\Users\28293\Desktop\demo\扫地车\详情\DW2000B-Plus新扫地车详情页-260312_04.jpg"
+
 
 def normalize_config(cfg: dict) -> dict:
     """
@@ -23,7 +28,6 @@ def normalize_config(cfg: dict) -> dict:
     if "slogan_line1" not in cfg:
         slogan = cfg.get("slogan", "")
         # 按标点切割（逗号或句号），最多拆成两行
-        import re
         parts = re.split(r'[，,。]', slogan, maxsplit=1)
         cfg["slogan_line1"] = (parts[0] + "，").strip() if len(parts) > 1 else slogan
         cfg["slogan_line2"] = parts[1].strip() if len(parts) > 1 else ""
@@ -65,9 +69,9 @@ def normalize_config(cfg: dict) -> dict:
 def ensure_nobg(path_str: str) -> str:
     """
     确保产品图是透明底 PNG：
-    1. 若同目录已有 _nobg.png，直接复用（跳过抠图）
-    2. 若输入已是透明 PNG（RGBA），直接使用
-    3. 否则调用 rembg 自动抠图，结果保存为 _nobg.png 供下次复用
+    1. output/<stem>_nobg.png 已存在 → 直接复用缓存
+    2. 图片已有真实透明像素（alpha.min < 250）→ 直接使用原图
+    3. 否则调用 rembg 抠图，结果保存到 output/<stem>_nobg.png
     """
     if not path_str:
         return path_str
@@ -154,10 +158,8 @@ def render_page(config_path: str = None, scale: int = 2) -> str:
     else:
         config["scene_image_url"] = path_to_url(product_img)  # 已抠图，无白底
     # 第2屏：适用场所固定图（config 未填则用默认图）
-    DEFAULT_SCREEN2 = r"C:\Users\28293\Desktop\demo\扫地车\详情\DW2000B-Plus新扫地车详情页-260312_02.jpg"
     config["screen2_image_url"] = path_to_url(config.get("screen2_image") or DEFAULT_SCREEN2)
     # 第4屏：垃圾对比固定图（config 未填则用默认图）
-    DEFAULT_SCREEN4 = r"C:\Users\28293\Desktop\demo\扫地车\详情\DW2000B-Plus新扫地车详情页-260312_04.jpg"
     config["screen4_image_url"] = path_to_url(config.get("screen4_image") or DEFAULT_SCREEN4)
 
     # ── 4. 渲染 Jinja2 模板 ──────────────────────────────────────
