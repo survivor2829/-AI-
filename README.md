@@ -1,13 +1,12 @@
-# 产品详情页自动生成工具
+# 物保云产品详情页生成器
 
-把产品数据填进 JSON，运行一条命令，自动生成电商详情页长图（PNG）。
+输入产品图 + 参数，自动生成电商详情页长图（PNG）。
 
 ---
 
 ## 文件结构
 
 ```
-product-detail-generator/
 ├── render.py              # 主程序：读配置 → 渲染 HTML → Playwright 截图
 ├── template.html          # 详情页 HTML 模板（Jinja2，750px 宽，三屏）
 ├── product_config.json    # 当前产品配置（换产品时改这个）
@@ -25,7 +24,7 @@ product-detail-generator/
 ## 快速运行
 
 ```powershell
-cd C:\Users\28293\clean-industry-ai-assistant\product-detail-generator
+cd C:\your\project\path
 python render.py
 ```
 
