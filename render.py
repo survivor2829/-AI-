@@ -6,6 +6,10 @@ import re
 import json
 import sys
 import os
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
 from jinja2 import Template
 from playwright.sync_api import sync_playwright
@@ -13,6 +17,7 @@ from playwright.sync_api import sync_playwright
 BASE_DIR = Path(__file__).parent
 OUTPUT_DIR = BASE_DIR / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
+UPLOAD_DIR = BASE_DIR / "uploads"
 TEMPLATES_DIR = BASE_DIR / "templates"
 
 # 第2、4屏固定图片默认路径（config 未填且模板目录无匹配时使用）
@@ -54,6 +59,11 @@ def normalize_config(cfg: dict) -> dict:
             {"label": k, "value": v}
             for k, v in list(cfg["core_params"].items())[:4]
         ]
+    cfg["core_params_list"] = [
+        (item["label"], item["value"])
+        for item in (cfg.get("core_params") or [])
+        if isinstance(item, dict)
+    ]
 
     # ── detail_params：dict → list of [名1,值1,名2,值2] ─────────
     if isinstance(cfg.get("detail_params"), dict):
@@ -74,6 +84,8 @@ def normalize_config(cfg: dict) -> dict:
     cfg.setdefault("machine_pros", ["省时省钱省心"])
     cfg.setdefault("human_cons",   ["人工效率低", "成本高"])
     cfg.setdefault("params_subtitle", f"{model}全新升级")
+    cfg.setdefault("efficiency_value", cfg.get("efficiency_claim", ""))
+    cfg.setdefault("people_count", "3")
     cfg.setdefault("machine_stats", [
         cfg.get("efficiency_claim", ""),
         f"一年劲省{cfg.get('savings_claim', '')}",
@@ -145,74 +157,107 @@ def path_to_url(path_str: str) -> str:
     return p.as_uri()
 
 
-def render_page(config_path: str = None, scale: int = 2) -> str:
+def _make_img_url(path_str: str, base_url: str = None) -> str:
     """
-    读取 JSON 配置，渲染 HTML 模板，截图输出 PNG。
-
-    Args:
-        config_path: JSON 配置文件路径（默认使用同目录的 product_config.json）
-        scale: 像素密度（1=750px宽, 2=1500px宽高清）
-
-    Returns:
-        输出 PNG 文件路径
+    将本地路径转成可访问的 URL：
+    - 有 base_url（web app 调用）：uploads/ 和 output/ 用 HTTP URL，
+      templates/ 用 /api/template-thumb/ 接口，其余 fallback file://
+    - 无 base_url（CLI 调用）：直接 file://
     """
-    # ── 1. 加载配置 ──────────────────────────────────────────────
-    config_path = Path(config_path) if config_path else BASE_DIR / "product_config.json"
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = json.load(f)
+    if not path_str:
+        return ""
+    p = Path(path_str)
+    if not base_url:
+        return path_to_url(path_str)
 
-    # ── 2. 标准化配置（兼容新旧格式）───────────────────────────────
-    config = normalize_config(config)
+    try:
+        rel = p.relative_to(UPLOAD_DIR)
+        return f"{base_url}/api/uploads/{rel.as_posix()}"
+    except ValueError:
+        pass
+    try:
+        rel = p.relative_to(OUTPUT_DIR)
+        return f"{base_url}/api/output/{rel.as_posix()}"
+    except ValueError:
+        pass
+    try:
+        rel = p.relative_to(TEMPLATES_DIR)
+        parts = rel.parts
+        if len(parts) >= 2:
+            return f"{base_url}/api/template-thumb/{parts[0]}/{'/'.join(parts[1:])}"
+    except ValueError:
+        pass
+    # 其他路径（Desktop 等）仍用 file://
+    return path_to_url(path_str)
 
-    # ── 3. 图片路径 → file:// URL ────────────────────────────────
-    # 产品图：自动抠图去背景（有缓存则跳过）
+
+def _resolve_image_urls(config: dict, base_url: str = None) -> dict:
+    """将配置中的图片路径转换为可访问 URL，并处理抠图和模板匹配逻辑。"""
+    url = lambda p: _make_img_url(p, base_url)
+
     product_img = ensure_nobg(config.get("product_image", ""))
-    config["product_image_url"] = path_to_url(product_img)
-    # 实景图：有专属 scene_image 用原图（真实场景照），否则降级用已抠图的产品图
+    config["product_image_url"] = url(product_img)
+
     if config.get("scene_image"):
-        config["scene_image_url"] = path_to_url(config["scene_image"])
+        config["scene_image_url"] = url(config["scene_image"])
     else:
-        config["scene_image_url"] = path_to_url(product_img)  # 已抠图，无白底
-    # 第2屏：优先级 templates/{product_type}/screen2 > config.screen2_image > DEFAULT_SCREEN2
+        config["scene_image_url"] = url(product_img)
+
     product_type = config.get("product_type", "")
-    s2 = resolve_template_image(product_type, "screen2")
+    tpl_type = config.get("template_type", "") or product_type
+
+    s2 = resolve_template_image(tpl_type, "screen2")
     if s2:
-        config["screen2_image_url"] = path_to_url(s2)
-        print(f"[模板] 第2屏使用产品类型模板: templates/{product_type}/screen2")
+        config["screen2_image_url"] = url(s2)
+        print(f"[模板] 第2屏使用模板: templates/{tpl_type}/screen2")
     elif config.get("screen2_image"):
-        config["screen2_image_url"] = path_to_url(config["screen2_image"])
+        config["screen2_image_url"] = url(config["screen2_image"])
     else:
-        pt_hint = f"templates/{product_type}/" if product_type else "templates/<product_type>/"
+        pt_hint = f"templates/{tpl_type}/" if tpl_type else "templates/<product_type>/"
         print(f"[警告] 未找到 {pt_hint}screen2.jpg，使用默认图片")
-        config["screen2_image_url"] = path_to_url(DEFAULT_SCREEN2)
+        config["screen2_image_url"] = url(DEFAULT_SCREEN2)
 
-    # 第4屏：优先级 templates/{product_type}/screen4 > config.screen4_image > DEFAULT_SCREEN4
-    s4 = resolve_template_image(product_type, "screen4")
+    s4 = resolve_template_image(tpl_type, "screen4")
     if s4:
-        config["screen4_image_url"] = path_to_url(s4)
-        print(f"[模板] 第4屏使用产品类型模板: templates/{product_type}/screen4")
+        config["screen4_image_url"] = url(s4)
+        print(f"[模板] 第4屏使用模板: templates/{tpl_type}/screen4")
     elif config.get("screen4_image"):
-        config["screen4_image_url"] = path_to_url(config["screen4_image"])
+        config["screen4_image_url"] = url(config["screen4_image"])
     else:
-        pt_hint = f"templates/{product_type}/" if product_type else "templates/<product_type>/"
+        pt_hint = f"templates/{tpl_type}/" if tpl_type else "templates/<product_type>/"
         print(f"[警告] 未找到 {pt_hint}screen4.jpg，使用默认图片")
-        config["screen4_image_url"] = path_to_url(DEFAULT_SCREEN4)
+        config["screen4_image_url"] = url(DEFAULT_SCREEN4)
 
-    # ── 4. 渲染 Jinja2 模板 ──────────────────────────────────────
-    template_file = BASE_DIR / "template.html"
+    return config
+
+
+def _render_and_screenshot(config: dict, scale: int) -> str:
+    """渲染 Jinja2 模板并用 Playwright 截图，返回输出 PNG 路径。"""
+    # 优先使用 templates/{template_type}/template.html，其次用默认
+    tpl_type = config.get("template_type", "") or config.get("product_type", "")
+    custom_tpl = TEMPLATES_DIR / tpl_type / "template.html" if tpl_type else None
+    if custom_tpl and custom_tpl.exists():
+        template_file = custom_tpl
+        print(f"[模板] 使用自定义HTML模板: templates/{tpl_type}/template.html")
+    else:
+        template_file = BASE_DIR / "template.html"
+        print(f"[模板] 使用默认HTML模板: template.html")
     with open(template_file, "r", encoding="utf-8") as f:
         tpl = Template(f.read())
 
+    import sys as _sys
+    _enc = _sys.stdout.encoding or "utf-8"
+    print(f"[RENDER DEBUG] core_params_list={config.get('core_params_list')}".encode(_enc, errors="replace").decode(_enc))
+    print(f"[RENDER DEBUG] savings_claim={config.get('savings_claim')}".encode(_enc, errors="replace").decode(_enc))
+    print(f"[RENDER DEBUG] dimensions={config.get('dimensions')}".encode(_enc, errors="replace").decode(_enc))
     html = tpl.render(**config)
 
-    # 写临时 HTML 文件（放在 output 目录，方便本地浏览器预览）
     temp_html = OUTPUT_DIR / "_temp_preview.html"
     with open(temp_html, "w", encoding="utf-8") as f:
         f.write(html)
 
     print(f"[OK] HTML 已生成: {temp_html}")
 
-    # ── 5. Playwright 截图 ───────────────────────────────────────
     model_slug = config.get("model", "product").replace(" ", "_").replace("/", "-")
     out_png = OUTPUT_DIR / f"{model_slug}_detail.png"
 
@@ -225,20 +270,52 @@ def render_page(config_path: str = None, scale: int = 2) -> str:
             device_scale_factor=scale,
         )
         page = ctx.new_page()
-
-        # 加载本地 HTML（file:// 协议支持本地图片）
         page.goto(temp_html.as_uri(), wait_until="networkidle", timeout=30000)
-
-        # 等图片渲染完成
         page.wait_for_timeout(800)
-
-        # 全页截图
         page.screenshot(path=str(out_png), full_page=True)
         browser.close()
 
     print(f"[完成] 图片已生成: {out_png}")
     print(f"       宽度: {750 * scale}px (高清{scale}x)")
     return str(out_png)
+
+
+def generate_detail_page(config: dict, scale: int = 2, base_url: str = None) -> str:
+    """
+    接收配置字典，生成详情页图片。可被外部模块直接导入调用。
+
+    Args:
+        config:   产品配置字典（与 product_config.json 格式相同）
+        scale:    像素密度（1=750px, 2=1500px 高清）
+        base_url: web app 调用时传入 "http://127.0.0.1:5000"，
+                  使图片通过 HTTP 加载，避免 Playwright file:// 安全限制
+
+    Returns:
+        输出 PNG 文件的绝对路径
+    """
+    config = normalize_config(config)
+    print(f"[DEBUG] core_params_list={config.get('core_params_list')}")
+    print(f"[DEBUG] efficiency_value={config.get('efficiency_value')}")
+    print(f"[DEBUG] people_count={config.get('people_count')}")
+    config = _resolve_image_urls(config, base_url=base_url)
+    return _render_and_screenshot(config, scale)
+
+
+def render_page(config_path: str = None, scale: int = 2) -> str:
+    """
+    读取 JSON 配置文件，生成详情页图片（CLI 入口）。
+
+    Args:
+        config_path: JSON 配置文件路径（默认使用同目录的 product_config.json）
+        scale: 像素密度（1=750px宽, 2=1500px宽高清）
+
+    Returns:
+        输出 PNG 文件路径
+    """
+    config_path = Path(config_path) if config_path else BASE_DIR / "product_config.json"
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+    return generate_detail_page(config, scale=scale)
 
 
 def open_result(path: str):
