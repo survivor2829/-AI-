@@ -61,6 +61,32 @@ def _first_nonempty(*values):
     return ""
 
 
+# ── 极限词过滤（电商合规）────────────────────────────────────────────
+
+_EXTREME_WORD_MAP = {
+    "最强": "超强", "最大": "超大", "最小": "超小", "最好": "优质",
+    "最高": "超高", "最低": "超低", "最快": "高速", "最优": "优质",
+    "最先进": "先进", "最专业": "专业", "最安全": "安全",
+    "最耐用": "耐用", "最便捷": "便捷", "最智能": "智能",
+    "最环保": "环保", "最轻": "轻量", "最省": "节能",
+    "第一": "领先", "唯一": "专属", "极致": "卓越",
+    "顶级": "高级", "顶尖": "优质",
+    "行业领先": "行业前列", "业界领先": "行业认可",
+    "全球领先": "全球认可", "国内领先": "行业前列",
+    "世界领先": "行业前列", "国际领先": "国际认可",
+    "无与伦比": "卓越出色",
+}
+
+
+def _strip_extreme_words(text: str) -> str:
+    """替换电商违禁极限词，避免平台合规风险"""
+    if not isinstance(text, str):
+        return text
+    for word, repl in _EXTREME_WORD_MAP.items():
+        text = text.replace(word, repl)
+    return text
+
+
 def _get_detail_value(detail_params: dict, keys: list) -> str:
     if not isinstance(detail_params, dict):
         return ""
@@ -245,7 +271,8 @@ def _parse_text_by_template(raw_text: str) -> dict:
     return result
 
 
-def _build_spec_rows(detail_params: dict, max_rows: int = 12) -> list:
+def _build_spec_rows(detail_params: dict) -> list:
+    """将 detail_params 转为参数行列表，优先列显示重要参数，其余全量追加。不限行数。"""
     if not isinstance(detail_params, dict):
         return []
 
@@ -266,8 +293,6 @@ def _build_spec_rows(detail_params: dict, max_rows: int = 12) -> list:
         if value:
             rows.append({"name": key, "value": value})
             used.add(key)
-        if len(rows) >= max_rows:
-            return rows
 
     for key, value in detail_params.items():
         k = _to_str(key)
@@ -275,8 +300,6 @@ def _build_spec_rows(detail_params: dict, max_rows: int = 12) -> list:
         if not k or not v or k in used:
             continue
         rows.append({"name": k, "value": v})
-        if len(rows) >= max_rows:
-            break
 
     return rows
 
@@ -320,7 +343,7 @@ def _map_parsed_to_form_fields(parsed: dict) -> dict:
         _get_detail_value(detail_params, ["工作时间", "续航时间", "续航"]),
     )
 
-    specs = _build_spec_rows(detail_params, max_rows=12)
+    specs = _build_spec_rows(detail_params)
 
     dim_length = _to_str(dimensions.get("length", ""))
     dim_width = _to_str(dimensions.get("width", ""))
@@ -485,6 +508,10 @@ def _call_deepseek_parse(raw_text: str) -> dict:
         "你是一个清洁设备营销文案专家。请根据以下产品参数，完成两件事：\n\n"
         "第一，提取所有技术参数（型号、尺寸、功率等）填入对应字段。\n"
         "第二，根据这些参数生成营销文案（严格基于真实数据，不得编造产品没有的功能）。\n\n"
+        "【合规要求】文案中严禁出现以下极限词（电商平台违禁词）：\n"
+        "最强、最大、最好、最高、最低、最快、最优、最先进、最专业、最安全、最耐用、最便捷、最智能、\n"
+        "第一、唯一、极致、顶级、顶尖、行业领先、业界领先、全球领先、世界领先、无与伦比。\n"
+        "请用具体数据或中性词替代，如【超强】【高效】【优质】【行业前列】等。\n\n"
         "返回以下JSON格式（所有字段必须返回，不要遗漏）：\n"
         "```json\n"
         "{\n"
@@ -554,6 +581,16 @@ def _call_deepseek_parse(raw_text: str) -> dict:
     adv = parsed.get("advantages", [])
     print(f"[DeepSeek] advantages数量={len(adv)}，前3项={adv[:3]}")
     print(f"[DeepSeek] story_title_1={parsed.get('story_title_1','(无)')}")
+
+    # ── 极限词过滤 ──
+    for _field in ["slogan", "sub_slogan", "story_title_1", "story_title_2",
+                   "story_desc_1", "story_desc_2", "story_bottom_1", "story_bottom_2"]:
+        if _field in parsed:
+            parsed[_field] = _strip_extreme_words(_to_str(parsed[_field]))
+    for _adv in parsed.get("advantages", []):
+        if isinstance(_adv, dict) and "text" in _adv:
+            _adv["text"] = _strip_extreme_words(_to_str(_adv["text"]))
+
     return parsed
 
 
@@ -725,7 +762,7 @@ def build_submit_generic(product_type):
 
     # ── Block E（参数表）──
     e_specs = []
-    for i in range(1, 13):
+    for i in range(1, 51):
         name = form_text(f'e_spec_name_{i}', '')
         value = form_text(f'e_spec_value_{i}', '')
         if name and value:
@@ -738,7 +775,7 @@ def build_submit_generic(product_type):
         "title": "产品参数",
         "subtitle": form_text("e_table_subtitle", "规格一览"),
         "red_bar_text": _e_red or f"{model_name}创新升级",
-        "product_image": product_side_image or product_image,
+        "product_image": scene_image or product_side_image or product_image,
         "dim_height": form_text('e_dim_height', _dims.get("height", "")),
         "dim_width":  form_text('e_dim_width',  _dims.get("width", "")),
         "dim_length": form_text('e_dim_length', _dims.get("length", "")),

@@ -243,7 +243,7 @@
         <td><input type="text" name="e_spec_value_{{ loop.index }}" value="{{ sp.value }}"></td>
       </tr>
       {% endfor %}
-      {% for i in range(config.default_specs|length + 1, 13) %}
+      {% for i in range(config.default_specs|length + 1, 51) %}
       <tr>
         <td><input type="text" name="e_spec_name_{{ i }}"  placeholder="参数名"></td>
         <td><input type="text" name="e_spec_value_{{ i }}" placeholder="参数值"></td>
@@ -403,7 +403,7 @@ async function parseAiTextForBuild() {
 
     // ── 产品参数表 ──
     var specs = Array.isArray(data.e_specs) ? data.e_specs : [];
-    for (var i = 1; i <= 12; i++) {
+    for (var i = 1; i <= 50; i++) {
       var row = specs[i-1] || {};
       setFieldValue('e_spec_name_' + i, row.name || '');
       setFieldValue('e_spec_value_' + i, row.value || '');
