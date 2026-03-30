@@ -749,11 +749,11 @@ def build_submit_generic(product_type):
         return _fallback_text(F.get(name, ""), default)
 
     # ── 图片上传 ──
-    product_image    = _save_upload('product_image', auto_rembg=True)  # 自动抠白底
-    scene_image      = _save_upload('scene_image')
-    product_side_image = _save_upload('product_side_image')
-    effect_image     = _save_upload('effect_image')
-    logo_image       = _save_upload('logo_image')
+    product_image      = _save_upload('product_image',      auto_rembg=True)  # 产品主图自动抠白底
+    scene_image        = _save_upload('scene_image')                          # 场景底图保留背景
+    product_side_image = _save_upload('product_side_image', auto_rembg=True)  # 侧面图自动抠白底
+    effect_image       = _save_upload('effect_image')                         # 效果图保留背景
+    logo_image         = _save_upload('logo_image')
 
     # ── 英雄屏参数条（跳过空值、占位符、过长值）──
     hero_params = []
