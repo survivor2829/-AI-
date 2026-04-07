@@ -22,8 +22,7 @@ RUN pip config set global.index-url https://mirrors.cloud.tencent.com/pypi/simpl
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt gunicorn requests
 
-# Playwright Chromium（使用国内CDN）
-ENV PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright
+# Playwright Chromium（从官方CDN下载）
 RUN playwright install chromium
 
 # 复制项目文件
