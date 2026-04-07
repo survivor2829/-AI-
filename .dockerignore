@@ -1,0 +1,14 @@
+.git
+.gitignore
+.claude
+.omc
+__pycache__
+*.pyc
+output/
+uploads/
+static/uploads/
+static/outputs/
+PROJECT_ARCHITECTURE.md
+*.md
+!requirements.txt
+.env

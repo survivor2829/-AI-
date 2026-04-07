@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-***REMOVED***}
+    volumes:
+      - uploads:/app/static/uploads
+      - outputs:/app/static/outputs
+    restart: unless-stopped
+
+volumes:
+  uploads:
+  outputs:

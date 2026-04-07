@@ -1,0 +1,36 @@
+FROM python:3.11-slim
+
+# 系统依赖（Playwright Chromium 需要）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget curl fonts-wqy-zenhei fonts-wqy-microhei fonts-noto-cjk \
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+    libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 \
+    libgbm1 libpango-1.0-0 libcairo2 libasound2 libxshmfence1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Python 依赖
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt gunicorn requests
+
+# Playwright Chromium
+RUN playwright install chromium
+
+# 预下载 rembg 模型（避免首次运行时下载）
+RUN python -c "from rembg import new_session; new_session('isnet-general-use')"
+
+# 复制项目文件
+COPY . .
+
+# 创建运行时目录
+RUN mkdir -p static/uploads static/outputs output
+
+# 环境变量
+ENV FLASK_ENV=production
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 5000
+
+# 用 gunicorn 生产级启动
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120", "app:app"]
