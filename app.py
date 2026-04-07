@@ -53,17 +53,34 @@ def _no_cache(response):
         response.headers["Expires"] = "0"
     return response
 
-# ── rembg 可用性检测 ──
+# ── rembg 可用性检测（懒加载，避免启动时占满内存） ──
 REMBG_SESSION = None
+REMBG_AVAILABLE = False
+_rembg_loaded = False
+
+def _ensure_rembg():
+    """首次抠图时才加载模型，减少启动内存占用"""
+    global REMBG_SESSION, REMBG_AVAILABLE, _rembg_loaded
+    if _rembg_loaded:
+        return REMBG_AVAILABLE
+    _rembg_loaded = True
+    try:
+        from rembg import new_session
+        REMBG_SESSION = new_session("isnet-general-use")
+        REMBG_AVAILABLE = True
+        print("[rembg] 模型加载成功，产品图将自动抠图")
+    except Exception as e:
+        REMBG_AVAILABLE = False
+        print(f"[rembg] 模型加载失败（{e}），产品图将保留原背景")
+    return REMBG_AVAILABLE
+
+# 仅检测是否安装，不加载模型
 try:
     import rembg as _rembg_check
-    from rembg import new_session as _rembg_new_session
     REMBG_AVAILABLE = True
-    REMBG_SESSION = _rembg_new_session("isnet-general-use")
-    print("[启动] rembg 已安装（isnet-general-use 模型），产品图将自动抠图")
+    print("[启动] rembg 已安装，首次抠图时加载模型")
 except ImportError:
-    REMBG_AVAILABLE = False
-    print("[启动] ⚠ rembg 未安装，产品图将保留原背景。运行: pip install rembg onnxruntime")
+    print("[启动] rembg 未安装，产品图将保留原背景")
 
 
 # ── 工具函数 ─────────────────────────────────────────────────────────
@@ -526,7 +543,7 @@ def _save_upload(file_field_name, auto_rembg: bool = False) -> str:
     save_path = STATIC_UPLOADS / filename
     f.save(str(save_path))
 
-    if auto_rembg and REMBG_AVAILABLE:
+    if auto_rembg and _ensure_rembg():
         try:
             from PIL import Image as _Img
             import numpy as np

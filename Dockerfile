@@ -17,9 +17,6 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn requests
 # Playwright Chromium
 RUN playwright install chromium
 
-# 预下载 rembg 模型（避免首次运行时下载）
-RUN python -c "from rembg import new_session; new_session('isnet-general-use')"
-
 # 复制项目文件
 COPY . .
 
