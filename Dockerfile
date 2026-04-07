@@ -32,5 +32,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 5000
 
-# 用 gunicorn 生产级启动
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120", "app:app"]
+# 用 gunicorn 生产级启动（Render 用 $PORT 环境变量，本地默认 5000）
+CMD gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 1 --timeout 180 app:app
