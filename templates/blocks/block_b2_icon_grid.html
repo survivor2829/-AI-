@@ -15,7 +15,7 @@
       }
     可任意项数；grid_columns（默认3）控制列数，行数随 items 自动换行。
 -->
-<div style="width:750px; font-family:'PingFang SC','Microsoft YaHei','Helvetica Neue',sans-serif; overflow:hidden;">
+<div style="width:750px; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; overflow:hidden;">
   
   <!-- 红色背景区 -->
   <div style="background:linear-gradient(180deg, #E8231A 0%, #d41f17 100%); padding:50px 36px 50px;">
@@ -43,11 +43,11 @@
       {% for item in items %}
       <div style="text-align:center;">
         <!-- 圆形图标 -->
-        <div style="width:120px; height:120px; margin:0 auto; background:rgba(255,255,255,0.92); border-radius:50%; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 15px rgba(0,0,0,0.1);">
+        <div style="width:120px; height:120px; margin:0 auto; background:rgba(255,255,255,0.18); border:2px solid rgba(255,255,255,0.55); border-radius:50%; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 24px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3);">
           {% if item.icon_image %}
-          <img src="{{ item.icon_image }}" style="width:56px; height:56px; object-fit:contain;" alt="">
+          <img src="{{ item.icon_image }}" style="width:56px; height:56px; object-fit:contain; filter:brightness(0) invert(1);" alt="">
           {% else %}
-          <span style="font-size:40px; color:#999;">{{ item.icon_text|default('●') }}</span>
+          <span style="font-size:40px; color:#fff;">{{ item.icon_text|default('●') }}</span>
           {% endif %}
         </div>
         <!-- 文字标签 -->

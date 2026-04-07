@@ -1,0 +1,54 @@
+<!--
+  block_n_quote_cta — 询价/预约演示 CTA
+  宽度：750px
+
+  变量：
+  - cta_title: 主标题（如"获取报价与解决方案"）
+  - cta_subtitle: 副标题
+  - contact_items: 联系方式列表，每项：{"label":"电话","value":"400-xxx-xxxx"}
+  - highlights: 保障点列表，每项：{"text":"xxx"}
+  - qr_image: 二维码图片路径（可空）
+  - qr_caption: 二维码说明（可空）
+-->
+
+<div style="width:750px; box-sizing:border-box; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; padding:42px 40px; color:#FFFFFF; background:linear-gradient(135deg, #E8231A 0%, #B42318 55%, #7A271A 100%); position:relative; overflow:hidden;">
+  <div style="position:absolute; right:-200px; top:-180px; width:520px; height:520px; background:radial-gradient(circle at 35% 35%, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.0) 70%);"></div>
+  <div style="position:absolute; left:-210px; bottom:-240px; width:580px; height:580px; background:radial-gradient(circle at 60% 60%, rgba(0,0,0,0.20) 0%, rgba(0,0,0,0.0) 70%);"></div>
+
+  <div style="position:relative; z-index:2; display:flex; gap:18px; align-items:stretch;">
+    <div style="flex:1; min-width:0;">
+      <div style="font-size:28px; font-weight:900; line-height:1.2;">{{ cta_title }}</div>
+      <div style="margin-top:10px; font-size:14px; line-height:1.65; color:rgba(255,255,255,0.90);">{{ cta_subtitle }}</div>
+
+      {% if highlights %}
+      <div style="margin-top:16px; display:flex; flex-wrap:wrap; gap:10px;">
+        {% for h in highlights %}
+        <div style="padding:8px 12px; border-radius:999px; background:rgba(255,255,255,0.16); border:1px solid rgba(255,255,255,0.18); font-size:12px; color:rgba(255,255,255,0.95);">{{ h.text }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if contact_items %}
+      <div style="margin-top:18px; border-radius:18px; overflow:hidden; background:rgba(0,0,0,0.18); border:1px solid rgba(255,255,255,0.18);">
+        {% for c in contact_items %}
+        <div style="display:flex; justify-content:space-between; gap:14px; padding:12px 14px; background:{% if loop.index0 % 2 == 0 %}rgba(255,255,255,0.06){% else %}rgba(255,255,255,0.03){% endif %};">
+          <div style="font-size:13px; font-weight:800; color:rgba(255,255,255,0.92);">{{ c.label }}</div>
+          <div style="font-size:13px; font-weight:700; color:rgba(255,255,255,0.92); text-align:right;">{{ c.value }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div style="flex:0 0 200px; width:200px; border-radius:22px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.20); padding:14px; box-sizing:border-box; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+      {% if qr_image %}
+      <img src="{{ qr_image }}" alt="二维码" style="width:160px; height:160px; display:block; border-radius:14px; background:#fff;" />
+      {% else %}
+      <div style="width:160px; height:160px; border-radius:14px; background:rgba(255,255,255,0.18); display:flex; align-items:center; justify-content:center; font-size:12px; color:rgba(255,255,255,0.85);">扫码咨询</div>
+      {% endif %}
+      {% if qr_caption %}
+      <div style="margin-top:10px; font-size:12px; color:rgba(255,255,255,0.92); text-align:center; line-height:1.5;">{{ qr_caption }}</div>
+      {% endif %}
+    </div>
+  </div>
+</div>

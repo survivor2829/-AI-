@@ -160,6 +160,45 @@
 </div>
 {% endif %}
 
+{# ── Screen 4: 品牌背书 ── #}
+{% if block_g and block_g.brand_title %}
+<div class="screen" id="screen_g">
+  {% with brand_title=block_g.brand_title, brand_subtitle=block_g.brand_subtitle,
+          brand_stats=block_g.brand_stats, brand_story_lines=block_g.brand_story_lines %}
+    {% include 'blocks/block_g_brand_story.html' %}
+  {% endwith %}
+</div>
+{% endif %}
+
+{# ── Screen 5: 适用场景 ── #}
+{% if block_h and block_h.scenes %}
+<div class="screen" id="screen_h">
+  {% with section_title=block_h.section_title, section_subtitle=block_h.section_subtitle,
+          scenes=block_h.scenes %}
+    {% include 'blocks/block_h_scene_grid.html' %}
+  {% endwith %}
+</div>
+{% endif %}
+
+{# ── Screen 6: KPI 大数字条 ── #}
+{% if block_i and block_i.kpis %}
+<div class="screen" id="screen_i">
+  {% with section_title=block_i.section_title, kpis=block_i.kpis %}
+    {% include 'blocks/block_i_kpi_strip.html' %}
+  {% endwith %}
+</div>
+{% endif %}
+
+{# ── Screen 7: 核心技术 ── #}
+{% if block_j and block_j.tech_items %}
+<div class="screen" id="screen_j">
+  {% with section_title=block_j.section_title, section_subtitle=block_j.section_subtitle,
+          tech_items=block_j.tech_items %}
+    {% include 'blocks/block_j_core_tech.html' %}
+  {% endwith %}
+</div>
+{% endif %}
+
 {# ── 固定卖点图（中间插入）── #}
 {% for img_url in fixed_selling_images|default([]) %}
 <div class="screen">
@@ -184,7 +223,7 @@
 </div>
 {% endif %}
 
-{# ── 末屏: 产品参数表 ── #}
+{# ── 产品参数表 ── #}
 <div class="screen" id="screen_spec">
   {% with
     title=block_e.title, subtitle=block_e.subtitle,
@@ -195,6 +234,56 @@
     {% include 'blocks/block_e_glass_dimension.html' %}
   {% endwith %}
 </div>
+
+{# ── 资质认证 ── #}
+{% if block_k and block_k.badge_items %}
+<div class="screen" id="screen_k">
+  {% with section_title=block_k.section_title, section_subtitle=block_k.section_subtitle,
+          badge_items=block_k.badge_items %}
+    {% include 'blocks/block_k_cert_badges.html' %}
+  {% endwith %}
+</div>
+{% endif %}
+
+{# ── 服务承诺对比 ── #}
+{% if block_l and block_l.compare_rows %}
+<div class="screen" id="screen_l">
+  {% with section_title=block_l.section_title, section_subtitle=block_l.section_subtitle,
+          left_title=block_l.left_title, right_title=block_l.right_title,
+          compare_rows=block_l.compare_rows, service_flow=block_l.service_flow %}
+    {% include 'blocks/block_l_service_compare.html' %}
+  {% endwith %}
+</div>
+{% endif %}
+
+{# ── 使用流程 ── #}
+{% if block_m and block_m.steps %}
+<div class="screen" id="screen_m">
+  {% with section_title=block_m.section_title, steps=block_m.steps %}
+    {% include 'blocks/block_m_steps.html' %}
+  {% endwith %}
+</div>
+{% endif %}
+
+{# ── 询价 CTA ── #}
+{% if block_n and block_n.cta_title %}
+<div class="screen" id="screen_n">
+  {% with cta_title=block_n.cta_title, cta_subtitle=block_n.cta_subtitle,
+          contact_items=block_n.contact_items, highlights=block_n.highlights,
+          qr_image=block_n.qr_image, qr_caption=block_n.qr_caption %}
+    {% include 'blocks/block_n_quote_cta.html' %}
+  {% endwith %}
+</div>
+{% endif %}
+
+{# ── 免责声明 ── #}
+{% if block_o and block_o.disclaimer_text %}
+<div class="screen" id="screen_o">
+  {% with disclaimer_title=block_o.disclaimer_title, disclaimer_text=block_o.disclaimer_text %}
+    {% include 'blocks/block_o_disclaimer.html' %}
+  {% endwith %}
+</div>
+{% endif %}
 
 {% if not export_mode|default(false) %}
 <script>

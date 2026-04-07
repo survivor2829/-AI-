@@ -5,7 +5,7 @@
   变量：title, subtitle, red_bar_text, product_image,
         dim_height, dim_width, dim_length, specs[], footnote
 -->
-<div style="width:750px; font-family:'PingFang SC','Microsoft YaHei','Helvetica Neue',sans-serif; overflow:hidden;
+<div style="width:750px; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; overflow:hidden;
   background:linear-gradient(180deg,#e9eef5 0%,#dde5ee 45%,#d3dce8 100%);">
 
   <!-- 红顶条 -->
@@ -29,12 +29,12 @@
 
   <!-- 文字尺寸标注（一横行） -->
   {% if dim_length or dim_width or dim_height %}
-  <div style="text-align:center; padding:4px 20px 20px; font-size:17px; color:#4a5566; font-weight:600; letter-spacing:0.3px;">
-    {% if dim_length %}长 <span style="color:#1a1a1a; font-weight:800;">{{ dim_length }}</span>{% endif %}
+  <div style="text-align:center; padding:4px 20px 24px; font-size:22px; color:#2d3a4a; font-weight:700; letter-spacing:1px;">
+    {% if dim_length %}长 <span style="color:#1a1a1a; font-weight:900; font-size:26px;">{{ dim_length }}</span>{% endif %}
     {% if dim_length and (dim_width or dim_height) %}&nbsp;&nbsp;×&nbsp;&nbsp;{% endif %}
-    {% if dim_width %}宽 <span style="color:#1a1a1a; font-weight:800;">{{ dim_width }}</span>{% endif %}
+    {% if dim_width %}宽 <span style="color:#1a1a1a; font-weight:900; font-size:26px;">{{ dim_width }}</span>{% endif %}
     {% if dim_width and dim_height %}&nbsp;&nbsp;×&nbsp;&nbsp;{% endif %}
-    {% if dim_height %}高 <span style="color:#1a1a1a; font-weight:800;">{{ dim_height }}</span>{% endif %}
+    {% if dim_height %}高 <span style="color:#1a1a1a; font-weight:900; font-size:26px;">{{ dim_height }}</span>{% endif %}
   </div>
   {% endif %}
 
@@ -44,7 +44,10 @@
     <div style="border-radius:18px; border:1px solid rgba(255,255,255,0.85);
       background:rgba(255,255,255,0.5); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
       box-shadow:0 12px 40px rgba(30,45,70,0.12), inset 0 1px 0 rgba(255,255,255,0.9); overflow:hidden;">
-      <div style="padding:18px 20px 8px; font-size:20px; font-weight:800; color:#1a1a1a;">{{ title }}</div>
+      <div style="padding:18px 20px 8px; display:flex; align-items:center; gap:10px;">
+        <div style="width:4px; height:22px; background:#E8231A; border-radius:2px; flex-shrink:0;"></div>
+        <span style="font-size:20px; font-weight:800; color:#1a1a1a;">{{ title }}</span>
+      </div>
       {% if subtitle %}
       <div style="padding:0 20px 14px; font-size:16px; color:#666;">{{ subtitle }}</div>
       {% endif %}

@@ -1,0 +1,39 @@
+<!--
+  block_j_core_tech — 核心技术总览（技术目录式展示）
+  宽度：750px
+
+  变量：
+  - section_title: 标题（如"六大核心技术"）
+  - section_subtitle: 副标题（可空）
+  - tech_items: 技术列表（4-8项），每项：{"title":"感应电机","desc":"高效稳定，适配长时间作业"}
+-->
+
+<div style="width:750px; box-sizing:border-box; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; background:linear-gradient(180deg,#0E1220 0%,#0B0F1A 100%); color:#ffffff; padding:44px 40px 46px 40px;">
+  <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px;">
+    <div style="min-width:0;">
+      <div style="font-size:28px; font-weight:900; line-height:1.2;">{{ section_title }}</div>
+      {% if section_subtitle %}
+      <div style="margin-top:10px; font-size:14px; color:rgba(255,255,255,0.78); line-height:1.7;">{{ section_subtitle }}</div>
+      {% endif %}
+    </div>
+    <div style="flex:0 0 auto; padding:10px 12px; border-radius:14px; background:rgba(232,35,26,0.12); border:1px solid rgba(232,35,26,0.34);">
+      <div style="font-size:12px; color:#FFB3AF; font-weight:800;">技术总览</div>
+    </div>
+  </div>
+
+  <div style="margin-top:18px; height:1px; background:linear-gradient(90deg, rgba(255,255,255,0.0) 0%, rgba(255,255,255,0.18) 38%, rgba(232,35,26,0.35) 70%, rgba(255,255,255,0.0) 100%);"></div>
+
+  <div style="margin-top:18px; display:flex; flex-wrap:wrap; gap:12px;">
+    {% for t in tech_items %}
+    <div style="width:calc(50% - 6px); box-sizing:border-box; border-radius:18px; padding:16px 16px 14px 16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12);">
+      <div style="display:flex; align-items:flex-start; gap:10px;">
+        <div style="flex:0 0 28px; width:28px; height:28px; border-radius:10px; background:#E8231A; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:900;">{{ '%02d' % loop.index }}</div>
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:15px; font-weight:900; line-height:1.3;">{{ t.title }}</div>
+          <div style="margin-top:6px; font-size:12px; line-height:1.7; color:rgba(255,255,255,0.74);">{{ t.desc }}</div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>

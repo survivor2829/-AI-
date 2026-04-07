@@ -1,0 +1,116 @@
+{
+  "name": "工具类",
+  "product_type": "工具类",
+  "engines": ["blocks"],
+  "default_engine": "blocks",
+  "hero_block_template": "blocks/block_a_hero_robot_cover.html",
+  "spec_block_template": "blocks/block_e_glass_dimension.html",
+  "default_cover_image": "",
+  "hero_cover_defaults": {
+    "category_line": "专业清洁工具",
+    "main_title": "清洁工具",
+    "hero_subtitle_pre": "专业品质 ",
+    "hero_subtitle_em": "耐用",
+    "hero_subtitle_post": " 高效清洁",
+    "footer_note": "*产品外观及颜色以实物为准，图片仅供参考。",
+    "bg_focal": "center center"
+  },
+  "generic_enabled_screens": [1, 2, 5, 10],
+  "defaults": {
+    "brand_text": "德威莱克清洁工具",
+    "brand": "德威莱克",
+    "brand_en": "DWEILK",
+    "model_name": "",
+    "product_name": "清洁工具",
+    "tagline_line1": "",
+    "tagline_line2": "",
+    "tagline_sub": "专业工具，事半功倍"
+  },
+  "hero_params": [
+    {"label": "材质", "default_value": ""},
+    {"label": "规格尺寸", "default_value": ""},
+    {"label": "适用场景", "default_value": ""},
+    {"label": "使用寿命", "default_value": ""}
+  ],
+  "default_specs": [],
+  "default_dims": {
+    "height": "",
+    "width": "",
+    "length": ""
+  },
+  "blocks_hardcoded": {
+    "block_b2": {
+      "title_num": "4",
+      "title_text": "大产品优势",
+      "subtitle": "专业清洁工具",
+      "grid_columns": 2,
+      "items": [
+        {"icon_image": "", "icon_text": "🔩", "label": "坚固耐用"},
+        {"icon_image": "", "icon_text": "🧹", "label": "高效清洁"},
+        {"icon_image": "", "icon_text": "🪶", "label": "轻便易用"},
+        {"icon_image": "", "icon_text": "♻️", "label": "经久耐洗"}
+      ]
+    },
+    "block_b3": {
+      "header_line1": "",
+      "header_line2": "",
+      "hero_image": "",
+      "caption_line1": "",
+      "caption_line2": "",
+      "floor_title": "",
+      "floor_items": [],
+      "footer_line1": "",
+      "footer_line2": ""
+    },
+    "block_f": {
+      "title_line1": "",
+      "title_line1_red": "",
+      "title_line1_end": "",
+      "title_line2": "",
+      "title_line2_red": "",
+      "vs_left_title": "",
+      "vs_left_sub": "",
+      "vs_right_title": "",
+      "vs_right_sub": "",
+      "vs_left_bottom": "",
+      "vs_right_bottom": ""
+    }
+  },
+  "block_h": {
+    "section_title": "适用场景",
+    "section_subtitle": "多场景清洁需求全覆盖",
+    "scenes": [
+      {"name": "商场", "desc": "大面积地面日常清洁", "image": ""},
+      {"name": "酒店", "desc": "高标准卫生保洁", "image": ""},
+      {"name": "办公楼", "desc": "日常保洁维护", "image": ""},
+      {"name": "工厂", "desc": "工业环境深度清洁", "image": ""}
+    ]
+  },
+  "block_q": {
+    "section_title": "清洁效果对比",
+    "section_subtitle": "实测清洁效果",
+    "comparisons": []
+  },
+  "block_r": {
+    "section_title": "包装清单",
+    "section_subtitle": "",
+    "package_items": [],
+    "package_note": "* 包装清单以实物为准"
+  },
+  "block_n": {
+    "cta_title": "批量采购 · 获取优惠",
+    "cta_subtitle": "支持大批量采购，量大价优",
+    "contact_items": [],
+    "highlights": [{"text": "厂家直供"}, {"text": "量大从优"}, {"text": "快速发货"}],
+    "qr_image": "",
+    "qr_caption": ""
+  },
+  "block_o": {
+    "disclaimer_title": "温馨提示",
+    "disclaimer_text": "1. 产品外观及颜色以实物为准，图片仅供参考。\n2. 不同规格尺寸请在下单时确认。\n3. 建议定期更换清洁工具以保证清洁效果。"
+  },
+  "fixed_selling_images": [],
+  "ai_detail_key_priority": [
+    "材质", "规格尺寸", "适用场景", "使用寿命", "产品重量", "包装数量", "颜色"
+  ]
+}

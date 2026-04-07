@@ -6,28 +6,22 @@ __pycache__/
 venv/
 *.egg-info/
 
-# 生成的临时文件
-output/_temp_preview.html
+# 运行时目录（用户上传/导出/临时）
+output/
+uploads/
+static/uploads/
+static/outputs/
 
-# 抠图缓存（大文件，本地生成即可）
-output/*_nobg.png
+# 参考图片（不属于代码）
+static/设备类/ref_*.png
 
-# 调试截图（开发过程中产生的中间图）
-output/check_*.jpg
-output/chk_*.jpg
-output/cmp_*.jpg
-output/crop_*.jpg
-output/fine_*.jpg
-output/gen_screen*.jpg
-output/grid_*.jpg
-output/sw_*.jpg
-output/wh_*.jpg
-output/t5_s*.jpg
-output/v_s*.jpg
-output/t5_top.jpg
-output/t5_bot.jpg
-output/t5_final_*.jpg
-output/nobg_check.png
+# 根目录临时图片/截图
+*.png
+*.jpg
+
+# 工具生成文件
+.omc/
+PROJECT_ARCHITECTURE.md
 
 # 系统文件
 .DS_Store

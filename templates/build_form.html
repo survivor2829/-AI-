@@ -95,17 +95,42 @@
   .b3-field label { font-size: 12px; color: #888; }
   .b3-field input { padding: 7px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
   .warn-note { font-size: 12px; color: #c66; background: #fff8f0; border: 1px solid #f5c6a0; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; line-height: 1.5; }
+  /* VS对比区行布局 */
+  .form-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+  .form-row label { font-size: 13px; color: #666; white-space: nowrap; min-width: 64px; }
+  .form-row input { flex: 1; min-width: 80px; padding: 7px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
 </style>
 </head>
 <body>
 
-<h1>{{ config.name }} · 详情长图</h1>
-<p class="subtitle">
-  <span class="step-num">1</span>上传产品图与场景图 &rarr;
-  <span class="step-num">2</span>粘贴资料并 AI 识别 &rarr;
-  <span class="step-num">3</span>生成预览 &rarr;
-  <span class="step-num">4</span>导出 PNG
-</p>
+<div style="background:linear-gradient(135deg,#0f111a 0%,#1a1d2e 100%); border-radius:12px; padding:24px 28px 20px; margin-bottom:20px;">
+  <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
+    <a href="/" style="display:flex; align-items:center; gap:5px; color:rgba(255,255,255,0.65); text-decoration:none; font-size:13px; border:1px solid rgba(255,255,255,0.2); border-radius:999px; padding:6px 14px; transition:all .15s; flex-shrink:0;" onmouseover="this.style.color='#fff';this.style.borderColor='rgba(255,255,255,0.5)'" onmouseout="this.style.color='rgba(255,255,255,0.65)';this.style.borderColor='rgba(255,255,255,0.2)'">&#8592; 返回选择</a>
+    <div style="width:6px; height:36px; background:#E8231A; border-radius:3px; flex-shrink:0;"></div>
+    <div>
+      <div style="font-size:20px; font-weight:800; color:#fff; letter-spacing:1px;">{{ config.name }} · 详情长图生成器</div>
+      <div style="font-size:13px; color:rgba(255,255,255,0.45); margin-top:3px;">物保云 · 单品详情页自动生成</div>
+    </div>
+  </div>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:999px; padding:5px 14px;">
+      <span style="width:18px; height:18px; background:#E8231A; color:#fff; border-radius:50%; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;">1</span>
+      <span style="font-size:13px; color:rgba(255,255,255,0.7);">上传图片</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:999px; padding:5px 14px;">
+      <span style="width:18px; height:18px; background:#E8231A; color:#fff; border-radius:50%; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;">2</span>
+      <span style="font-size:13px; color:rgba(255,255,255,0.7);">AI 识别</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:999px; padding:5px 14px;">
+      <span style="width:18px; height:18px; background:#E8231A; color:#fff; border-radius:50%; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;">3</span>
+      <span style="font-size:13px; color:rgba(255,255,255,0.7);">生成预览</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:999px; padding:5px 14px;">
+      <span style="width:18px; height:18px; background:#E8231A; color:#fff; border-radius:50%; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;">4</span>
+      <span style="font-size:13px; color:rgba(255,255,255,0.7);">导出 PNG</span>
+    </div>
+  </div>
+</div>
 
 <!-- 生成/识别 进度遮罩 -->
 <div id="genOverlay">
@@ -291,6 +316,79 @@
   </div>
 </div>
 
+{# ── 品牌背书 Block G ── #}
+<div class="section category-section" data-categories="设备类">
+  <div class="subsection-title">品牌背书（AI自动填入）</div>
+  <div class="form-row">
+    <label>品牌名称</label>
+    <input type="text" name="g_brand_title" value="" placeholder="AI自动生成">
+  </div>
+  <div class="form-row">
+    <label>品牌简介</label>
+    <input type="text" name="g_brand_subtitle" value="" placeholder="AI自动生成">
+  </div>
+</div>
+
+{# ── 适用场景 Block H ── #}
+<div class="section category-section" data-categories="设备类,工具类">
+  <div class="subsection-title">适用场景<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI识别后自动填入场景JSON</span></div>
+  <input type="hidden" name="block_h_json" id="block_h_json" value="">
+  <div class="form-row">
+    <label>场景数据</label>
+    <textarea name="block_h_display" rows="3" placeholder='AI自动生成，格式如：[{"name":"商场","desc":"大面积清洁","image":""}]' style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:monospace;"></textarea>
+  </div>
+</div>
+
+{# ── 适配型号 Block P ── #}
+<div class="section category-section" data-categories="配耗类">
+  <div class="subsection-title">适配型号<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI识别后自动填入适配机型</span></div>
+  <input type="hidden" name="block_p_json" id="block_p_json" value="">
+  <div class="form-row">
+    <label>适配数据</label>
+    <textarea name="block_p_display" rows="3" placeholder='AI自动生成，格式如：[{"model":"DZ50X","series":"清洁机器人系列"}]' style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:monospace;"></textarea>
+  </div>
+</div>
+
+{# ── 使用流程/安装步骤 Block M ── #}
+<div class="section category-section" data-categories="设备类,配耗类,耗材类,工具类">
+  <div class="subsection-title">使用流程/安装步骤<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI识别后自动填入</span></div>
+  <input type="hidden" name="block_m_json" id="block_m_json" value="">
+  <div class="form-row">
+    <label>步骤数据</label>
+    <textarea name="block_m_display" rows="3" placeholder='AI自动生成，格式如：[{"title":"第一步","desc":"操作说明"}]' style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:monospace;"></textarea>
+  </div>
+</div>
+
+{# ── KPI数据 Block I ── #}
+<div class="section category-section" data-categories="设备类,耗材类">
+  <div class="subsection-title">产品数据/KPI<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI识别后自动填入</span></div>
+  <input type="hidden" name="block_i_json" id="block_i_json" value="">
+  <div class="form-row">
+    <label>KPI数据</label>
+    <textarea name="block_i_display" rows="3" placeholder='AI自动生成，格式如：[{"label":"稀释比","value":"1:200","unit":"","note":""}]' style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:monospace;"></textarea>
+  </div>
+</div>
+
+{# ── 使用效果对比 Block Q ── #}
+<div class="section category-section" data-categories="耗材类,工具类">
+  <div class="subsection-title">使用效果对比<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— 使用前后效果</span></div>
+  <input type="hidden" name="block_q_json" id="block_q_json" value="">
+  <div class="form-row">
+    <label>对比数据</label>
+    <textarea name="block_q_display" rows="2" placeholder='AI自动生成，格式如：[{"before_label":"使用前","after_label":"使用后","desc":"效果说明"}]' style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:monospace;"></textarea>
+  </div>
+</div>
+
+{# ── 包装清单 Block R ── #}
+<div class="section category-section" data-categories="配耗类,工具类">
+  <div class="subsection-title">包装清单<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI识别后自动填入</span></div>
+  <input type="hidden" name="block_r_json" id="block_r_json" value="">
+  <div class="form-row">
+    <label>清单数据</label>
+    <textarea name="block_r_display" rows="3" placeholder='AI自动生成，格式如：[{"name":"主刷","qty":"1","note":""}]' style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:monospace;"></textarea>
+  </div>
+</div>
+
 {# ── 产品参数表 ── #}
 <div class="section">
   <div class="section-title">产品参数表（末屏）</div>
@@ -326,6 +424,23 @@
 
 <script>
 var currentProductType = '{{ product_type }}';
+
+// Show/hide category-specific sections
+document.querySelectorAll('.category-section').forEach(function(el) {
+  var cats = (el.getAttribute('data-categories') || '').split(',');
+  el.style.display = cats.indexOf(currentProductType) >= 0 ? '' : 'none';
+});
+
+function syncBlockJsonDisplay() {
+  var jsonFields = ['block_h_json','block_p_json','block_m_json','block_i_json','block_q_json','block_r_json'];
+  jsonFields.forEach(function(id) {
+    var hidden = document.getElementById(id);
+    var display = document.querySelector('[name="' + id.replace('_json','_display') + '"]');
+    if (hidden && display && hidden.value) {
+      try { display.value = JSON.stringify(JSON.parse(hidden.value), null, 2); } catch(e) { display.value = hidden.value; }
+    }
+  });
+}
 
 // ── 进度条控制 ──
 function showProgress(title, steps) {
@@ -555,6 +670,25 @@ async function parseAiTextForBuild() {
       setFieldValue(f, data[f] || '');
     });
     console.log('[AI识别] VS对比: left_title=' + (data.f_vs_left_title || '(空)'));
+
+    // ── 新增块 JSON 字段（Block G/H/I/M/P/Q/R）──
+    var jsonMaps = {
+      'block_h_json': 'block_h_json',
+      'block_p_json': 'block_p_json',
+      'block_m_json': 'block_m_json',
+      'block_i_json': 'block_i_json',
+      'block_q_json': 'block_q_json',
+      'block_r_json': 'block_r_json',
+      'g_brand_title': 'g_brand_title',
+      'g_brand_subtitle': 'g_brand_subtitle'
+    };
+    for (var key in jsonMaps) {
+      if (data[jsonMaps[key]]) {
+        var el = document.getElementById(key) || document.querySelector('[name="' + key + '"]');
+        if (el) el.value = data[jsonMaps[key]];
+      }
+    }
+    syncBlockJsonDisplay();
 
     status.style.color = '#2a7';
     status.textContent = '识别完成！优势' + advFilled + '项已填入。请核对后点击生成';

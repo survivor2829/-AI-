@@ -147,6 +147,75 @@
       "bottom_text": "匠心打造，精工品质"
     }
   },
+  "block_g": {
+    "brand_title": "德威莱克商用清洁设备",
+    "brand_subtitle": "专注商用清洁领域，提供高效可靠的清洁解决方案",
+    "brand_stats": [
+      {"value": "10+", "label": "年行业深耕"},
+      {"value": "500+", "label": "服务网点"},
+      {"value": "30万+", "label": "服务客户"},
+      {"value": "50+", "label": "产品系列"}
+    ],
+    "brand_story_lines": []
+  },
+  "block_h": {
+    "section_title": "适用场景",
+    "section_subtitle": "覆盖多行业高频清洁需求",
+    "scenes": [
+      {"name": "商超卖场", "desc": "大面积高频通道清洁", "image": ""},
+      {"name": "医院", "desc": "低噪音，减少打扰", "image": ""},
+      {"name": "酒店大堂", "desc": "高标准洁净要求", "image": ""},
+      {"name": "写字楼", "desc": "办公区域日常保洁", "image": ""}
+    ]
+  },
+  "block_i": {
+    "section_title": "效率与性能",
+    "kpis": []
+  },
+  "block_j": {
+    "section_title": "核心技术",
+    "section_subtitle": "多项自研技术，保障清洁效果",
+    "tech_items": []
+  },
+  "block_k": {
+    "section_title": "资质认证",
+    "section_subtitle": "品质保障，值得信赖",
+    "badge_items": []
+  },
+  "block_l": {
+    "section_title": "买前买后，服务全程护航",
+    "section_subtitle": "",
+    "left_title": "官方旗舰店",
+    "right_title": "普通商家",
+    "compare_rows": [
+      {"label": "免费试用", "left_desc": "支持30天免费试用", "right_desc": "不支持", "left_ok": true, "right_ok": false},
+      {"label": "送货上门", "left_desc": "全国免费送货上门", "right_desc": "需自提或自费物流", "left_ok": true, "right_ok": false},
+      {"label": "上门培训", "left_desc": "专业技师上门指导", "right_desc": "无培训服务", "left_ok": true, "right_ok": false},
+      {"label": "质保服务", "left_desc": "整机质保+终身维护", "right_desc": "有限质保", "left_ok": true, "right_ok": false},
+      {"label": "配件供应", "left_desc": "原厂配件48小时达", "right_desc": "配件不确定", "left_ok": true, "right_ok": false}
+    ],
+    "service_flow": [
+      {"title": "咨询选型", "desc": "根据场地推荐合适机型"},
+      {"title": "送货上门", "desc": "预约时间，免费送达"},
+      {"title": "培训交机", "desc": "专业技师现场指导操作"}
+    ]
+  },
+  "block_m": {
+    "section_title": "使用流程",
+    "steps": []
+  },
+  "block_n": {
+    "cta_title": "获取报价与解决方案",
+    "cta_subtitle": "提交需求，我们将为您推荐合适机型与配置",
+    "contact_items": [],
+    "highlights": [{"text": "可预约演示"}, {"text": "快速报价"}, {"text": "全国售后"}],
+    "qr_image": "",
+    "qr_caption": ""
+  },
+  "block_o": {
+    "disclaimer_title": "温馨提示",
+    "disclaimer_text": "1. 产品参数为实验室标准工况下测试数据，实际使用中因场地、污渍类型等因素可能存在差异。\n2. 产品外观及颜色以实物为准，图片仅供参考。\n3. 产品不定期升级优化，恕不另行通知。"
+  },
   "legacy_defaults": {
     "efficiency_claim": "1台顶8-10人",
     "efficiency_value": "3600m²/h",
