@@ -9,7 +9,7 @@
       {"before_image":"url", "after_image":"url", "before_label":"使用前", "after_label":"使用后", "desc":"可选说明"}
 -->
 
-<div style="width:750px; box-sizing:border-box; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; background:#ffffff; color:#111827; padding:44px 40px 46px 40px;">
+{% if comparisons %}<div style="width:750px; box-sizing:border-box; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; background:#ffffff; color:#111827; padding:44px 40px 46px 40px;">
   <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px;">
     <div style="min-width:0;">
       <div style="font-size:28px; font-weight:900; line-height:1.2;">{{ section_title }}</div>
@@ -47,4 +47,4 @@
     {% endif %}
   </div>
   {% endfor %}
-</div>
+</div>{% endif %}

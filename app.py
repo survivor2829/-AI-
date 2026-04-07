@@ -956,6 +956,7 @@ def build_submit_generic(product_type):
     product_side_image = _save_upload('product_side_image', auto_rembg=True)  # 侧面图自动抠白底
     effect_image       = _save_upload('effect_image')                         # 效果图保留背景
     logo_image         = _save_upload('logo_image')
+    qr_image           = _save_upload('qr_image')                            # 微信二维码
 
     # ── 英雄屏参数条（跳过空值、占位符、过长值）──
     hero_params = []
@@ -1086,6 +1087,10 @@ def build_submit_generic(product_type):
         extra_blocks["block_g"]["brand_title"] = _g_title
     if _g_sub:
         extra_blocks["block_g"]["brand_subtitle"] = _g_sub
+
+    # 二维码图片覆盖 block_n
+    if qr_image:
+        extra_blocks["block_n"]["qr_image"] = qr_image
 
     # 表单 JSON 字段覆盖（AI 识别填入 → 用户可编辑 → 提交覆盖配置默认）
     _json_field_map = {

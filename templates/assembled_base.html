@@ -102,7 +102,7 @@
 </div>
 
 {# ── 产品优势（所有品类共用） ── #}
-{% if block_b2 %}
+{% if block_b2 and block_b2.items %}
 <div class="screen" id="screen2">
   {% with title_num=block_b2.title_num, title_text=block_b2.title_text,
           subtitle=block_b2.subtitle, items=block_b2["items"],
@@ -117,10 +117,13 @@
 
 {# ── 固定卖点图 ── #}
 {% for img_url in fixed_selling_images|default([]) %}
+{% if img_url %}
 <div class="screen"><img class="fixed-screen" src="{{ img_url }}" alt=""></div>
+{% endif %}
 {% endfor %}
 
 {# ── 产品参数表（所有品类共用） ── #}
+{% if block_e and (block_e.specs or block_e.product_image) %}
 <div class="screen" id="screen_spec">
   {% with title=block_e.title, subtitle=block_e.subtitle,
     red_bar_text=block_e.red_bar_text, product_image=block_e.product_image,
@@ -129,6 +132,7 @@
     {% include 'blocks/block_e_glass_dimension.html' %}
   {% endwith %}
 </div>
+{% endif %}
 
 {# ── 品类专属尾部区域 ── #}
 {% block category_tail %}{% endblock %}

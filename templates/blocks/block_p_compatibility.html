@@ -9,7 +9,7 @@
   - compat_note: 底部兼容性说明（可空）
 -->
 
-<div style="width:750px; box-sizing:border-box; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; background:linear-gradient(180deg,#0E1220 0%,#0B0F1A 100%); color:#ffffff; padding:44px 40px 46px 40px;">
+{% if compat_models %}<div style="width:750px; box-sizing:border-box; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; background:linear-gradient(180deg,#0E1220 0%,#0B0F1A 100%); color:#ffffff; padding:44px 40px 46px 40px;">
   <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px;">
     <div style="min-width:0;">
       <div style="font-size:28px; font-weight:900; line-height:1.2;">{{ section_title }}</div>
@@ -39,4 +39,4 @@
   {% if compat_note %}
   <div style="margin-top:14px; font-size:12px; color:rgba(255,255,255,0.55); line-height:1.7;">{{ compat_note }}</div>
   {% endif %}
-</div>
+</div>{% endif %}

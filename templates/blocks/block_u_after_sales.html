@@ -6,7 +6,7 @@
   - promises: [{icon_text, number, unit, label}, ...] 承诺卡片
   - service_note: 底部补充说明
 #}
-<div style="width:750px; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; background:linear-gradient(135deg,#0f1526 0%,#1a2240 100%); padding:50px 40px;">
+{% if promises %}<div style="width:750px; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; background:linear-gradient(135deg,#0f1526 0%,#1a2240 100%); padding:50px 40px;">
 
   <div style="text-align:center; margin-bottom:36px;">
     <div style="font-size:28px; font-weight:800; color:#fff; letter-spacing:1px;">{{ section_title|default('售后无忧') }}</div>
@@ -29,4 +29,4 @@
   <div style="text-align:center; margin-top:20px; font-size:12px; color:rgba(255,255,255,0.3); line-height:1.6;">{{ service_note }}</div>
   {% endif %}
 
-</div>
+</div>{% endif %}

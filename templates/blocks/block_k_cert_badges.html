@@ -9,7 +9,7 @@
     img 可空则用文字占位
 -->
 
-<div style="width:750px; box-sizing:border-box; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; background:#ffffff; color:#111827; padding:42px 40px 44px 40px;">
+{% if badge_items %}<div style="width:750px; box-sizing:border-box; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; background:#ffffff; color:#111827; padding:42px 40px 44px 40px;">
   <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px;">
     <div style="min-width:0;">
       <div style="font-size:26px; font-weight:900; line-height:1.2;">{{ section_title }}</div>
@@ -43,4 +43,4 @@
     </div>
     {% endfor %}
   </div>
-</div>
+</div>{% endif %}

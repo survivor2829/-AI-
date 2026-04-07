@@ -12,7 +12,7 @@
   - service_flow: 可选服务流程（3-6步），每项：{"title":"送货上门","desc":"预约时间，免费送达"}
 -->
 
-<div style="width:750px; box-sizing:border-box; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; background:#0E1220; color:#ffffff; padding:44px 40px 46px 40px;">
+{% if compare_rows %}<div style="width:750px; box-sizing:border-box; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; background:#0E1220; color:#ffffff; padding:44px 40px 46px 40px;">
   <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:16px;">
     <div style="min-width:0;">
       <div style="font-size:28px; font-weight:900; line-height:1.2;">{{ section_title }}</div>
@@ -85,4 +85,4 @@
     </div>
   </div>
   {% endif %}
-</div>
+</div>{% endif %}
