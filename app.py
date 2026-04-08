@@ -13,6 +13,15 @@ import uuid
 import json
 import re
 from pathlib import Path
+
+# 加载 .env 文件（本地开发用，生产环境靠系统环境变量）
+_env_file = Path(__file__).parent / ".env"
+if _env_file.exists():
+    for line in _env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
 from flask import Flask, request, jsonify, send_file, send_from_directory, render_template, redirect, url_for
 from werkzeug.utils import secure_filename
 
@@ -33,10 +42,11 @@ _EXTRA_BLOCK_KEYS = ["block_g", "block_h", "block_i", "block_j", "block_k",
 ALLOWED_IMG = {"jpg", "jpeg", "png", "webp"}
 
 # ── DeepSeek API 配置 ─────────────────────────────────────────────────
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "***REMOVED***")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 DEEPSEEK_MODEL   = "deepseek-chat"
-PROXY = {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"}
+_proxy_url = os.environ.get("HTTP_PROXY", "")
+PROXY = {"http": _proxy_url, "https": _proxy_url} if _proxy_url else {}
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
