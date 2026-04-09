@@ -1,5 +1,5 @@
 """
-物保云产品详情页生成器 - Web 后端（设备类专用）
+小玺AI产品详情页生成器 - Web 后端（设备类专用）
 启动: python app.py
 访问: http://localhost:5000
 """
@@ -1477,7 +1477,7 @@ with app.app_context():
 if __name__ == "__main__":
     _kill_old_flask(5000)
     print("=" * 50)
-    print("  物保云产品详情页生成器 - Web UI")
+    print("  小玺AI产品详情页生成器 - Web UI")
     print("=" * 50)
     print(f"  入口: http://localhost:5000/build/{PRODUCT_TYPE}")
     print(f"  预览: http://localhost:5000/preview/{PRODUCT_TYPE}")

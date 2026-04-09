@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}管理后台{% endblock %} · 物保云</title>
+<title>{% block title %}管理后台{% endblock %} · 小玺AI</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: "Microsoft YaHei", sans-serif; background: #f0f2f5; color: #333; }
@@ -59,7 +59,7 @@
 </head>
 <body>
 <div class="topbar">
-  <h1>物保云 · 管理后台</h1>
+  <h1>小玺AI · 管理后台</h1>
   <div class="nav">
     <a href="{{ url_for('admin.users') }}" class="{% if request.endpoint == 'admin.users' %}active{% endif %}">用户管理</a>
     <a href="{{ url_for('admin.logs') }}" class="{% if request.endpoint == 'admin.logs' %}active{% endif %}">生成记录</a>
