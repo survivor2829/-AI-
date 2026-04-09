@@ -1,138 +1,330 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ config.name }} · 快速生成</title>
+<link rel="stylesheet" href="/static/css/design-system.css">
 <style>
-  * { box-sizing: border-box; }
-  body { font-family: "Microsoft YaHei", sans-serif; max-width: 720px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
-  h1 { margin-bottom: 6px; font-size: 22px; }
-  .subtitle { color: #666; font-size: 14px; margin-bottom: 20px; line-height: 1.5; }
-  .section { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 18px; margin-bottom: 16px; }
-  .section-title { font-size: 16px; font-weight: bold; margin-bottom: 14px; color: #222; border-left: 4px solid #E8231A; padding-left: 10px; }
+  body {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 20px 40px;
+    background: var(--color-bg-page);
+  }
+
+  /* ── Header ── */
+  .page-header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(247,248,250,0.85);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    margin: 0 -20px; padding: 16px 20px 14px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .header-top {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 14px;
+  }
+  .back-link {
+    display: flex; align-items: center; gap: 5px;
+    color: var(--color-text-muted); text-decoration: none;
+    font-size: 13px; font-weight: 500;
+    padding: 6px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+  }
+  .back-link:hover { color: var(--color-text); border-color: var(--color-border-hover); }
+  .header-info h1 {
+    font-size: 18px; font-weight: 600; letter-spacing: -0.02em;
+  }
+  .header-info p {
+    font-size: 13px; color: var(--color-text-muted); margin-top: 2px;
+  }
+
+  /* ── Steps ── */
+  .steps-bar {
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .step-pill {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 14px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    font-size: 13px; color: var(--color-text-muted);
+  }
+  .step-pill .num {
+    width: 18px; height: 18px;
+    background: var(--color-primary);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+
+  /* ── Section ── */
+  .section {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 22px 24px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow-xs);
+  }
+  .section-title {
+    font-size: 15px; font-weight: 600; color: var(--color-text);
+    margin-bottom: 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-title::before {
+    content: ''; width: 3px; height: 16px;
+    background: var(--color-primary); border-radius: 2px; flex-shrink: 0;
+  }
+
+  /* ── Upload ── */
   .upload-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-  .upload-box { border: 2px dashed #ccc; border-radius: 8px; padding: 14px; text-align: center; position: relative; background: #fafafa; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: border-color .2s; }
-  .upload-box:hover { border-color: #E8231A; }
-  .upload-box.required { border-color: #E8231A; }
+  .upload-box {
+    border: 2px dashed var(--color-border); border-radius: var(--radius-md);
+    padding: 16px 12px; text-align: center; position: relative;
+    background: var(--color-bg); min-height: 120px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    cursor: pointer; transition: all var(--transition-base);
+  }
+  .upload-box:hover { border-color: var(--color-primary); background: var(--color-primary-light); }
+  .upload-box.required { border-color: var(--color-primary-border); }
   .upload-box input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-  .upload-box .icon { font-size: 28px; color: #ccc; margin-bottom: 5px; }
-  .upload-box .label { font-size: 13px; font-weight: bold; color: #333; }
-  .upload-box .hint { font-size: 11px; color: #999; margin-top: 4px; line-height: 1.4; }
-  .upload-box .tag-required { position: absolute; top: 6px; right: 6px; background: #E8231A; color: #fff; font-size: 10px; padding: 2px 5px; border-radius: 3px; }
-  .upload-box .preview-img { max-width: 100%; max-height: 80px; display: none; border-radius: 4px; }
+  .upload-box .icon { font-size: 28px; margin-bottom: 5px; opacity: 0.5; }
+  .upload-box .label { font-size: 13px; font-weight: 600; color: var(--color-text); }
+  .upload-box .hint { font-size: 11px; color: var(--color-text-muted); margin-top: 4px; line-height: 1.4; }
+  .upload-box .tag-required {
+    position: absolute; top: 6px; right: 6px;
+    background: var(--color-primary); color: #fff;
+    font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: var(--radius-sm);
+  }
+  .upload-box .preview-img { max-width: 100%; max-height: 80px; display: none; border-radius: var(--radius-sm); }
+
+  /* ── Form fields ── */
   .field { margin: 10px 0; display: flex; align-items: flex-start; gap: 10px; }
-  .field label { min-width: 88px; font-size: 14px; color: #555; text-align: right; padding-top: 8px; }
-  .field textarea { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; font-family: inherit; min-height: 130px; resize: vertical; }
-  .ai-actions { margin: 6px 0 0 98px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .ai-btn { background: #E8231A; color: #fff; border: none; border-radius: 6px; padding: 9px 16px; font-size: 14px; cursor: pointer; }
-  .ai-btn:hover { background: #c91a12; }
-  .ai-btn:disabled { background: #999; cursor: wait; }
-  .ai-status { font-size: 13px; color: #888; }
-  button[type="submit"] { background: #E8231A; color: #fff; border: none; padding: 14px 40px; font-size: 17px; border-radius: 8px; cursor: pointer; margin-top: 6px; display: block; width: 100%; }
-  button[type="submit"]:hover { background: #c91a12; }
+  .field label {
+    min-width: 88px; font-size: 13px; font-weight: 500;
+    color: var(--color-text-muted); text-align: right; padding-top: 10px;
+  }
+  .field textarea {
+    flex: 1; padding: 10px 14px;
+    border: 1px solid var(--color-border); border-radius: var(--radius-md);
+    font-size: 13px; font-family: var(--font-sans);
+    min-height: 130px; resize: vertical;
+    outline: none; transition: border-color var(--transition-fast);
+    color: var(--color-text);
+  }
+  .field textarea:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-light); }
+  .field textarea::placeholder { color: var(--color-text-placeholder); }
+
+  .ai-actions { margin: 8px 0 0 98px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ai-btn {
+    background: var(--color-primary); color: #fff; border: none;
+    border-radius: var(--radius-md); padding: 9px 18px;
+    font-size: 14px; font-weight: 500; cursor: pointer;
+    font-family: var(--font-sans);
+    transition: all var(--transition-base);
+    box-shadow: var(--shadow-sm);
+  }
+  .ai-btn:hover { background: var(--color-primary-hover); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+  .ai-btn:disabled { background: var(--color-text-muted); cursor: wait; transform: none; box-shadow: none; }
+  .ai-status { font-size: 13px; color: var(--color-text-muted); }
+
   .hidden-fields { display: none !important; }
-  .step-num { display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center; background: #E8231A; color: #fff; border-radius: 50%; font-size: 12px; margin-right: 8px; vertical-align: middle; }
-  /* 生成加载遮罩 */
+
+  /* ── Params grid ── */
+  .params-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .param-row { display: flex; gap: 6px; align-items: center; min-width: 0; overflow: hidden; }
+  .param-row input {
+    min-width: 0; flex: 1; padding: 8px 10px;
+    border: 1px solid var(--color-border); border-radius: var(--radius-md);
+    font-size: 13px; font-family: var(--font-sans);
+    outline: none; transition: border-color var(--transition-fast);
+    color: var(--color-text);
+  }
+  .param-row input:focus { border-color: var(--color-primary); }
+  .param-row .param-label-input { flex: 0 0 90px; min-width: 0; color: var(--color-text-muted); }
+
+  /* ── Specs table ── */
+  .specs-table { width: 100%; border-collapse: collapse; }
+  .specs-table th, .specs-table td {
+    padding: 8px 10px; border: 1px solid #f0f0f0; font-size: 13px;
+  }
+  .specs-table th {
+    background: var(--color-bg-subtle); color: var(--color-text-muted);
+    text-align: left; width: 140px; font-weight: 500; font-size: 12px;
+  }
+  .specs-table input {
+    width: 100%; border: none; outline: none; font-size: 13px;
+    background: transparent; font-family: var(--font-sans); color: var(--color-text);
+  }
+
+  .dims-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .dims-row label { font-size: 13px; color: var(--color-text-muted); min-width: 36px; font-weight: 500; }
+  .dims-row input {
+    flex: 1; padding: 8px 10px;
+    border: 1px solid var(--color-border); border-radius: var(--radius-md);
+    font-size: 13px; outline: none; font-family: var(--font-sans);
+    color: var(--color-text);
+    transition: border-color var(--transition-fast);
+  }
+  .dims-row input:focus { border-color: var(--color-primary); }
+
+  .subsection-title {
+    font-size: 13px; font-weight: 600; color: var(--color-text-secondary);
+    margin: 16px 0 10px; padding-bottom: 6px;
+    border-bottom: 1px solid #f3f4f6;
+  }
+  .subsection-title span { font-weight: 400; color: var(--color-text-muted); font-size: 12px; margin-left: 8px; }
+
+  /* ── Advantage grid ── */
+  .advantage-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .adv-item { display: flex; gap: 4px; }
+  .adv-icon-input {
+    width: 42px !important; min-width: 42px; flex: 0 0 42px; text-align: center;
+    padding: 8px 4px; border: 1px solid var(--color-border); border-radius: var(--radius-md);
+    font-size: 16px; outline: none;
+  }
+  .adv-icon-input:focus { border-color: var(--color-primary); }
+  .adv-label-input {
+    flex: 1; padding: 8px 10px;
+    border: 1px solid var(--color-border); border-radius: var(--radius-md);
+    font-size: 13px; min-width: 0; outline: none;
+    font-family: var(--font-sans); color: var(--color-text);
+  }
+  .adv-label-input:focus { border-color: var(--color-primary); }
+
+  /* ── B3 grid ── */
+  .b3-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .b3-field { display: flex; flex-direction: column; gap: 4px; }
+  .b3-field label { font-size: 12px; color: var(--color-text-muted); font-weight: 500; }
+  .b3-field input {
+    padding: 8px 10px; border: 1px solid var(--color-border);
+    border-radius: var(--radius-md); font-size: 13px; outline: none;
+    font-family: var(--font-sans); color: var(--color-text);
+    transition: border-color var(--transition-fast);
+  }
+  .b3-field input:focus { border-color: var(--color-primary); }
+
+  .warn-note {
+    font-size: 12px; color: #d97706;
+    background: var(--color-warning-bg); border: 1px solid #fde68a;
+    border-radius: var(--radius-md); padding: 10px 14px;
+    margin-bottom: 12px; line-height: 1.5;
+  }
+
+  /* ── Form rows ── */
+  .form-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+  .form-row label { font-size: 13px; color: var(--color-text-muted); white-space: nowrap; min-width: 64px; font-weight: 500; }
+  .form-row input {
+    flex: 1; min-width: 80px; padding: 8px 10px;
+    border: 1px solid var(--color-border); border-radius: var(--radius-md);
+    font-size: 13px; outline: none; font-family: var(--font-sans);
+    color: var(--color-text);
+    transition: border-color var(--transition-fast);
+  }
+  .form-row input:focus { border-color: var(--color-primary); }
+
+  /* ── Submit button ── */
+  .submit-btn {
+    background: var(--color-primary); color: #fff; border: none;
+    padding: 14px 40px; font-size: 16px; font-weight: 600;
+    border-radius: var(--radius-md); cursor: pointer;
+    margin-top: 8px; display: block; width: 100%;
+    font-family: var(--font-sans);
+    box-shadow: var(--shadow-md);
+    transition: all var(--transition-base);
+  }
+  .submit-btn:hover { background: var(--color-primary-hover); transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+
+  /* ── Progress overlay ── */
   #genOverlay {
     display: none; position: fixed; inset: 0; z-index: 99999;
-    background: rgba(10,12,20,0.85); backdrop-filter: blur(6px);
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     flex-direction: column; align-items: center; justify-content: center;
   }
   #genOverlay.active { display: flex; }
   .gen-card {
-    background: #1e2235; border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 18px; padding: 44px 60px; text-align: center;
-    box-shadow: 0 24px 64px rgba(0,0,0,0.5); min-width: 280px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    padding: 44px 56px; text-align: center;
+    box-shadow: var(--shadow-float); min-width: 300px;
   }
   .gen-spinner {
-    width: 52px; height: 52px; border: 4px solid rgba(255,255,255,0.1);
-    border-top-color: #E8231A; border-radius: 50%;
-    animation: gspin .75s linear infinite; margin: 0 auto 22px;
+    width: 44px; height: 44px;
+    border: 3px solid var(--color-border);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: gspin .8s linear infinite; margin: 0 auto 22px;
   }
   @keyframes gspin { to { transform: rotate(360deg); } }
-  .gen-title { color: #fff; font-size: 18px; font-weight: 700; margin-bottom: 8px; }
-  .gen-steps { color: rgba(255,255,255,0.4); font-size: 13px; line-height: 1.8; }
-  /* 进度条 */
+  .gen-title { font-size: 18px; font-weight: 600; color: var(--color-text); margin-bottom: 8px; }
   .gen-progress-wrap {
-    width: 100%; height: 6px; background: rgba(255,255,255,0.1);
-    border-radius: 3px; margin: 18px 0 12px; overflow: hidden;
+    width: 100%; height: 4px; background: #f3f4f6;
+    border-radius: 2px; margin: 18px 0 14px; overflow: hidden;
   }
   .gen-progress-bar {
-    height: 100%; width: 0%; border-radius: 3px;
-    background: linear-gradient(90deg, #E8231A, #ff6b5e);
+    height: 100%; width: 0%; border-radius: 2px;
+    background: linear-gradient(90deg, var(--color-primary), #3b89ff);
     transition: width 0.4s ease;
   }
-  .gen-step-list {
-    text-align: left; margin: 0; padding: 0; list-style: none;
-  }
+  .gen-step-list { text-align: left; margin: 0; padding: 0; list-style: none; }
   .gen-step-list li {
-    color: rgba(255,255,255,0.3); font-size: 13px; padding: 3px 0;
+    color: var(--color-text-muted); font-size: 13px; padding: 4px 0;
     transition: color 0.3s;
+    display: flex; align-items: center; gap: 8px;
   }
-  .gen-step-list li.active { color: #ffe9a8; }
-  .gen-step-list li.done { color: #4ade80; }
-  .gen-step-list li::before { content: '○ '; }
-  .gen-step-list li.active::before { content: '◉ '; }
-  .gen-step-list li.done::before { content: '✓ '; }
-  .params-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .param-row { display: flex; gap: 6px; align-items: center; min-width: 0; overflow: hidden; }
-  .param-row input { min-width: 0; flex: 1; padding: 7px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
-  .param-row .param-label-input { flex: 0 0 90px; min-width: 0; color: #888; }
-  .specs-table { width: 100%; border-collapse: collapse; }
-  .specs-table th, .specs-table td { padding: 6px 8px; border: 1px solid #eee; font-size: 13px; }
-  .specs-table th { background: #f9f9f9; color: #555; text-align: left; width: 140px; }
-  .specs-table input { width: 100%; border: none; outline: none; font-size: 13px; background: transparent; }
-  .dims-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
-  .dims-row label { font-size: 13px; color: #666; min-width: 36px; }
-  .dims-row input { flex: 1; padding: 7px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
-  .subsection-title { font-size: 13px; font-weight: bold; color: #555; margin: 14px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #eee; }
-  .advantage-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
-  .adv-item { display: flex; gap: 4px; }
-  .adv-icon-input { width: 42px !important; min-width: 42px; flex: 0 0 42px; text-align: center; padding: 7px 4px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; }
-  .adv-label-input { flex: 1; padding: 7px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; min-width: 0; }
-  .b3-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .b3-field { display: flex; flex-direction: column; gap: 4px; }
-  .b3-field label { font-size: 12px; color: #888; }
-  .b3-field input { padding: 7px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
-  .warn-note { font-size: 12px; color: #c66; background: #fff8f0; border: 1px solid #f5c6a0; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; line-height: 1.5; }
-  /* VS对比区行布局 */
-  .form-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
-  .form-row label { font-size: 13px; color: #666; white-space: nowrap; min-width: 64px; }
-  .form-row input { flex: 1; min-width: 80px; padding: 7px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+  .gen-step-list li::before {
+    content: ''; width: 6px; height: 6px;
+    border-radius: 50%; background: var(--color-border);
+    flex-shrink: 0; transition: background 0.3s;
+  }
+  .gen-step-list li.active { color: var(--color-primary); font-weight: 500; }
+  .gen-step-list li.active::before { background: var(--color-primary); }
+  .gen-step-list li.done { color: var(--color-success); }
+  .gen-step-list li.done::before { background: var(--color-success); }
+
+  /* ── Tip box ── */
+  .tip-box {
+    margin-top: 12px; padding: 12px 14px;
+    background: var(--color-info-bg); border: 1px solid #bfdbfe;
+    border-radius: var(--radius-md); font-size: 12px;
+    color: #1e40af; line-height: 1.7;
+  }
+  .tip-box b { font-weight: 600; }
+  .tip-box .muted { color: var(--color-text-muted); }
 </style>
 </head>
 <body>
 
-<div style="background:linear-gradient(135deg,#0f111a 0%,#1a1d2e 100%); border-radius:12px; padding:24px 28px 20px; margin-bottom:20px;">
-  <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
-    <a href="/" style="display:flex; align-items:center; gap:5px; color:rgba(255,255,255,0.65); text-decoration:none; font-size:13px; border:1px solid rgba(255,255,255,0.2); border-radius:999px; padding:6px 14px; transition:all .15s; flex-shrink:0;" onmouseover="this.style.color='#fff';this.style.borderColor='rgba(255,255,255,0.5)'" onmouseout="this.style.color='rgba(255,255,255,0.65)';this.style.borderColor='rgba(255,255,255,0.2)'">&#8592; 返回选择</a>
-    <div style="width:6px; height:36px; background:#E8231A; border-radius:3px; flex-shrink:0;"></div>
-    <div>
-      <div style="font-size:20px; font-weight:800; color:#fff; letter-spacing:1px;">{{ config.name }} · 详情长图生成器</div>
-      <div style="font-size:13px; color:rgba(255,255,255,0.45); margin-top:3px;">小玺AI · 单品详情页自动生成</div>
+<!-- ── Header ── -->
+<div class="page-header">
+  <div class="header-top">
+    <a href="/" class="back-link">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      返回
+    </a>
+    <div class="header-info">
+      <h1>{{ config.name }} · 详情长图生成器</h1>
+      <p>小玺AI · 单品详情页自动生成</p>
     </div>
   </div>
-  <div style="display:flex; gap:8px; flex-wrap:wrap;">
-    <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:999px; padding:5px 14px;">
-      <span style="width:18px; height:18px; background:#E8231A; color:#fff; border-radius:50%; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;">1</span>
-      <span style="font-size:13px; color:rgba(255,255,255,0.7);">上传图片</span>
-    </div>
-    <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:999px; padding:5px 14px;">
-      <span style="width:18px; height:18px; background:#E8231A; color:#fff; border-radius:50%; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;">2</span>
-      <span style="font-size:13px; color:rgba(255,255,255,0.7);">AI 识别</span>
-    </div>
-    <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:999px; padding:5px 14px;">
-      <span style="width:18px; height:18px; background:#E8231A; color:#fff; border-radius:50%; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;">3</span>
-      <span style="font-size:13px; color:rgba(255,255,255,0.7);">生成预览</span>
-    </div>
-    <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:999px; padding:5px 14px;">
-      <span style="width:18px; height:18px; background:#E8231A; color:#fff; border-radius:50%; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;">4</span>
-      <span style="font-size:13px; color:rgba(255,255,255,0.7);">导出 PNG</span>
-    </div>
+  <div class="steps-bar">
+    <div class="step-pill"><span class="num">1</span>上传图片</div>
+    <div class="step-pill"><span class="num">2</span>AI 识别</div>
+    <div class="step-pill"><span class="num">3</span>生成预览</div>
+    <div class="step-pill"><span class="num">4</span>导出 PNG</div>
   </div>
 </div>
 
-<!-- 生成/识别 进度遮罩 -->
+<!-- ── Progress Overlay ── -->
 <div id="genOverlay">
   <div class="gen-card">
     <div class="gen-spinner"></div>
@@ -142,7 +334,7 @@
   </div>
 </div>
 
-<form method="POST" enctype="multipart/form-data" id="buildForm">
+<form method="POST" enctype="multipart/form-data" id="buildForm" style="margin-top:20px;">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <input type="hidden" name="product_type" value="{{ product_type }}">
 
@@ -168,7 +360,7 @@
   <div class="upload-grid">
     <div class="upload-box required" id="box_product">
       <span class="tag-required">必填</span>
-      <div class="icon">📷</div>
+      <div class="icon">&#x1f4f7;</div>
       <div class="label">产品主图</div>
       <div class="hint">透明底抠图，叠在首屏场景上</div>
       <img class="preview-img" id="preview_product" alt="">
@@ -176,37 +368,37 @@
     </div>
     <div class="upload-box required" id="box_scene">
       <span class="tag-required">必填</span>
-      <div class="icon">🏢</div>
+      <div class="icon">&#x1f3e2;</div>
       <div class="label">场景底图</div>
       <div class="hint">首屏背景，地面场景渲染图</div>
       <img class="preview-img" id="preview_scene" alt="">
       <input type="file" name="scene_image" accept="image/*" required onchange="previewFile(this,'preview_scene')">
     </div>
     <div class="upload-box" id="box_effect">
-      <div class="icon">🎬</div>
+      <div class="icon">&#x1f3ac;</div>
       <div class="label">效果图</div>
       <div class="hint">可选，场景+产品合成图</div>
       <img class="preview-img" id="preview_effect" alt="">
       <input type="file" name="effect_image" accept="image/*" onchange="previewFile(this,'preview_effect')">
     </div>
     <div class="upload-box" id="box_logo">
-      <div class="icon">🏷</div>
+      <div class="icon">&#x1f3f7;</div>
       <div class="label">公司Logo</div>
       <div class="hint">可选，PNG透明底，首屏左上角</div>
       <img class="preview-img" id="preview_logo" alt="">
       <input type="file" name="logo_image" accept="image/*" onchange="previewFile(this,'preview_logo')">
     </div>
     <div class="upload-box" id="box_qr">
-      <div class="icon">📱</div>
+      <div class="icon">&#x1f4f1;</div>
       <div class="label">微信二维码</div>
       <div class="hint">可选，用于询价CTA屏</div>
       <img class="preview-img" id="preview_qr" alt="">
       <input type="file" name="qr_image" accept="image/*" onchange="previewFile(this,'preview_qr')">
     </div>
   </div>
-  <div style="margin-top:12px; padding:12px 14px; background:#FFF8F0; border:1px solid #FFE0C0; border-radius:8px; font-size:12px; color:#8B6914; line-height:1.7;">
+  <div class="tip-box">
     <b>提示：</b>只上传您有的图片即可，没有的模块不会显示。<br>
-    <span style="color:#999;">* 适用场景图（商场/酒店/办公楼等）已内置，无需额外提供</span>
+    <span class="muted">* 适用场景图（商场/酒店/办公楼等）已内置，无需额外提供</span>
   </div>
 </div>
 
@@ -218,7 +410,10 @@
     <textarea id="ai_text_input" placeholder="粘贴彩页、参数表、电商文案或 JSON（品牌、型号、规格、尺寸等），点击识别后自动填入下方字段。"></textarea>
   </div>
   <div class="ai-actions">
-    <button type="button" class="ai-btn" id="ai_parse_btn" onclick="parseAiTextForBuild()">AI 识别并填表</button>
+    <button type="button" class="ai-btn" id="ai_parse_btn" onclick="parseAiTextForBuild()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px;margin-right:4px"><path d="M12 2a4 4 0 0 0-4 4v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-2V6a4 4 0 0 0-4-4z"/></svg>
+      AI 识别并填表
+    </button>
     <span class="ai-status" id="ai_parse_status">识别后可直接生成；跳过则使用下方手填值或默认参数</span>
   </div>
 </div>
@@ -228,9 +423,9 @@
   <div class="section-title">型号 & 首屏参数</div>
   <div class="field">
     <label>型号</label>
-    <input type="text" name="model_name" value="{{ config.defaults.model_name }}" style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
+    <input type="text" name="model_name" value="{{ config.defaults.model_name }}" class="form-input" style="flex:1;">
   </div>
-  <div style="margin-top:10px;font-size:13px;color:#666;margin-bottom:8px;">首屏参数条（4 项，标签 + 值）</div>
+  <div style="margin-top:12px;font-size:13px;color:var(--color-text-muted);margin-bottom:8px;font-weight:500;">首屏参数条（4 项，标签 + 值）</div>
   <div class="params-grid">
     {% for hp in config.hero_params %}
     <div class="param-row">
@@ -241,17 +436,16 @@
   </div>
 </div>
 
-{# ── 卖点文案（AI识别后可编辑，严格基于产品真实数据）── #}
+{# ── 卖点文案 ── #}
 <div class="section">
   <div class="section-title">卖点文案（AI识别填入，请核对）</div>
-  <p class="warn-note">⚠️ 以下文案由 AI 从产品资料中提取，生成前请逐项核对是否与实际产品一致，不符的请手动修改。</p>
+  <p class="warn-note">以下文案由 AI 从产品资料中提取，生成前请逐项核对是否与实际产品一致，不符的请手动修改。</p>
 
-  {# 优势屏标题（隐藏，AI填入） #}
   <input type="hidden" name="b2_title_num" value="">
   <input type="hidden" name="b2_title_text" value="">
   <input type="hidden" name="b2_subtitle" value="">
 
-  <div class="subsection-title">产品优势标签（第2屏）<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI 根据产品参数自动生成，含emoji图标</span></div>
+  <div class="subsection-title">产品优势标签（第2屏）<span>— AI 根据产品参数自动生成，含emoji图标</span></div>
   <div class="advantage-grid-v2">
     {% for i in range(1, 10) %}
     <div class="adv-item">
@@ -261,7 +455,7 @@
     {% endfor %}
   </div>
 
-  <div class="subsection-title">清洁故事文案（第3屏）<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI识别后自动填入</span></div>
+  <div class="subsection-title">清洁故事文案（第3屏）<span>— AI识别后自动填入</span></div>
   <div class="b3-grid">
     <div class="b3-field">
       <label>大标题行1（清洁机构名称）</label>
@@ -293,7 +487,7 @@
 
 {# ── VS对比文案 ── #}
 <div class="section">
-  <div class="subsection-title">VS对比文案（末屏）<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI识别后自动填入</span></div>
+  <div class="subsection-title" style="margin-top:0;">VS对比文案（末屏）<span>— AI识别后自动填入</span></div>
   <div class="form-row">
     <label>标题前缀</label>
     <input type="text" name="f_title_line1" value="" placeholder="1台顶" style="width:80px">
@@ -330,7 +524,7 @@
 
 {# ── 品牌背书 Block G ── #}
 <div class="section category-section" data-categories="设备类">
-  <div class="subsection-title">品牌背书（AI自动填入）</div>
+  <div class="subsection-title" style="margin-top:0;">品牌背书（AI自动填入）</div>
   <div class="form-row">
     <label>品牌名称</label>
     <input type="text" name="g_brand_title" value="" placeholder="AI自动生成">
@@ -343,61 +537,61 @@
 
 {# ── 适用场景 Block H ── #}
 <div class="section category-section" data-categories="设备类,工具类">
-  <div class="subsection-title">适用场景<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI识别后自动填入场景JSON</span></div>
+  <div class="subsection-title" style="margin-top:0;">适用场景<span>— AI识别后自动填入场景JSON</span></div>
   <input type="hidden" name="block_h_json" id="block_h_json" value="">
   <div class="form-row">
     <label>场景数据</label>
-    <textarea name="block_h_display" rows="3" placeholder='AI自动生成，格式如：[{"name":"商场","desc":"大面积清洁","image":""}]' style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:monospace;"></textarea>
+    <textarea name="block_h_display" rows="3" placeholder='AI自动生成，格式如：[{"name":"商场","desc":"大面积清洁","image":""}]' style="flex:1;padding:8px 10px;border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:12px;font-family:var(--font-mono);outline:none;color:var(--color-text);"></textarea>
   </div>
 </div>
 
 {# ── 适配型号 Block P ── #}
 <div class="section category-section" data-categories="配耗类">
-  <div class="subsection-title">适配型号<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI识别后自动填入适配机型</span></div>
+  <div class="subsection-title" style="margin-top:0;">适配型号<span>— AI识别后自动填入适配机型</span></div>
   <input type="hidden" name="block_p_json" id="block_p_json" value="">
   <div class="form-row">
     <label>适配数据</label>
-    <textarea name="block_p_display" rows="3" placeholder='AI自动生成，格式如：[{"model":"DZ50X","series":"清洁机器人系列"}]' style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:monospace;"></textarea>
+    <textarea name="block_p_display" rows="3" placeholder='AI自动生成，格式如：[{"model":"DZ50X","series":"清洁机器人系列"}]' style="flex:1;padding:8px 10px;border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:12px;font-family:var(--font-mono);outline:none;color:var(--color-text);"></textarea>
   </div>
 </div>
 
 {# ── 使用流程/安装步骤 Block M ── #}
 <div class="section category-section" data-categories="设备类,配耗类,耗材类,工具类">
-  <div class="subsection-title">使用流程/安装步骤<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI识别后自动填入</span></div>
+  <div class="subsection-title" style="margin-top:0;">使用流程/安装步骤<span>— AI识别后自动填入</span></div>
   <input type="hidden" name="block_m_json" id="block_m_json" value="">
   <div class="form-row">
     <label>步骤数据</label>
-    <textarea name="block_m_display" rows="3" placeholder='AI自动生成，格式如：[{"title":"第一步","desc":"操作说明"}]' style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:monospace;"></textarea>
+    <textarea name="block_m_display" rows="3" placeholder='AI自动生成，格式如：[{"title":"第一步","desc":"操作说明"}]' style="flex:1;padding:8px 10px;border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:12px;font-family:var(--font-mono);outline:none;color:var(--color-text);"></textarea>
   </div>
 </div>
 
 {# ── KPI数据 Block I ── #}
 <div class="section category-section" data-categories="设备类,耗材类">
-  <div class="subsection-title">产品数据/KPI<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI识别后自动填入</span></div>
+  <div class="subsection-title" style="margin-top:0;">产品数据/KPI<span>— AI识别后自动填入</span></div>
   <input type="hidden" name="block_i_json" id="block_i_json" value="">
   <div class="form-row">
     <label>KPI数据</label>
-    <textarea name="block_i_display" rows="3" placeholder='AI自动生成，格式如：[{"label":"稀释比","value":"1:200","unit":"","note":""}]' style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:monospace;"></textarea>
+    <textarea name="block_i_display" rows="3" placeholder='AI自动生成，格式如：[{"label":"稀释比","value":"1:200","unit":"","note":""}]' style="flex:1;padding:8px 10px;border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:12px;font-family:var(--font-mono);outline:none;color:var(--color-text);"></textarea>
   </div>
 </div>
 
 {# ── 使用效果对比 Block Q ── #}
 <div class="section category-section" data-categories="耗材类,工具类">
-  <div class="subsection-title">使用效果对比<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— 使用前后效果</span></div>
+  <div class="subsection-title" style="margin-top:0;">使用效果对比<span>— 使用前后效果</span></div>
   <input type="hidden" name="block_q_json" id="block_q_json" value="">
   <div class="form-row">
     <label>对比数据</label>
-    <textarea name="block_q_display" rows="2" placeholder='AI自动生成，格式如：[{"before_label":"使用前","after_label":"使用后","desc":"效果说明"}]' style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:monospace;"></textarea>
+    <textarea name="block_q_display" rows="2" placeholder='AI自动生成，格式如：[{"before_label":"使用前","after_label":"使用后","desc":"效果说明"}]' style="flex:1;padding:8px 10px;border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:12px;font-family:var(--font-mono);outline:none;color:var(--color-text);"></textarea>
   </div>
 </div>
 
 {# ── 包装清单 Block R ── #}
 <div class="section category-section" data-categories="配耗类,工具类">
-  <div class="subsection-title">包装清单<span style="font-weight:normal;color:#aaa;font-size:12px;margin-left:8px">— AI识别后自动填入</span></div>
+  <div class="subsection-title" style="margin-top:0;">包装清单<span>— AI识别后自动填入</span></div>
   <input type="hidden" name="block_r_json" id="block_r_json" value="">
   <div class="form-row">
     <label>清单数据</label>
-    <textarea name="block_r_display" rows="3" placeholder='AI自动生成，格式如：[{"name":"主刷","qty":"1","note":""}]' style="flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:monospace;"></textarea>
+    <textarea name="block_r_display" rows="3" placeholder='AI自动生成，格式如：[{"name":"主刷","qty":"1","note":""}]' style="flex:1;padding:8px 10px;border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:12px;font-family:var(--font-mono);outline:none;color:var(--color-text);"></textarea>
   </div>
 </div>
 
@@ -431,7 +625,7 @@
   </table>
 </div>
 
-<button type="submit">生成详情页预览</button>
+<button type="submit" class="submit-btn">生成详情页预览</button>
 </form>
 
 <script>
@@ -480,7 +674,7 @@ function setProgressTitle(title) {
   document.getElementById('genTitle').textContent = title;
 }
 
-// 表单提交：若有产品文本且卖点为空，提示用户选择是否先AI识别（不自动覆盖）
+// 表单提交
 document.getElementById('buildForm').addEventListener('submit', async function(e) {
   var text = (document.getElementById('ai_text_input') ? document.getElementById('ai_text_input').value : '').trim();
   var b2Label1 = (document.querySelector('[name="b2_label_1"]') ? document.querySelector('[name="b2_label_1"]').value : '').trim();
@@ -565,9 +759,7 @@ function splitSloganText(text) {
 }
 
 function normalizeParsedForBuild(data) {
-  // 如果服务器已返回映射好的字段，直接用
   if (data.model_name || data.brand_text || Array.isArray(data.e_specs)) return data;
-  // 否则在客户端映射
   var parsed = data || {};
   var detail = (parsed.detail_params && typeof parsed.detail_params === 'object') ? parsed.detail_params : {};
   var dimensions = (parsed.dimensions && typeof parsed.dimensions === 'object') ? parsed.dimensions : {};
@@ -603,15 +795,13 @@ async function parseAiTextForBuild() {
   var text = (document.getElementById('ai_text_input').value || '').trim();
   var btn = document.getElementById('ai_parse_btn');
   var status = document.getElementById('ai_parse_status');
-  if (!text) { status.style.color='#c00'; status.textContent='请先粘贴产品资料文本'; return; }
+  if (!text) { status.style.color='var(--color-error)'; status.textContent='请先粘贴产品资料文本'; return; }
   btn.disabled = true; btn.textContent = 'AI 识别中…';
 
-  // 显示AI识别进度
   var aiSteps = ['连接AI服务', '解析产品参数', '生成营销文案', '填入表单字段'];
   showProgress('AI 识别中…', aiSteps);
   updateProgress(0, 4);
 
-  // 模拟步骤进展（AI调用期间按时间推进前3步）
   var stepTimer1 = setTimeout(function(){ updateProgress(1, 4); setProgressTitle('正在解析产品参数…'); }, 3000);
   var stepTimer2 = setTimeout(function(){ updateProgress(2, 4); setProgressTitle('正在生成营销文案…'); }, 8000);
 
@@ -621,7 +811,6 @@ async function parseAiTextForBuild() {
     updateProgress(3, 4); setProgressTitle('正在填入表单…');
     console.log('[AI识别] 服务器返回:', JSON.stringify(data).slice(0, 500));
 
-    // ── 基础字段 ──
     setFieldValue('brand_text', data.brand_text || '');
     setFieldValue('model_name', data.model_name || '');
     if (data.category_line) setFieldValue('category_line', data.category_line);
@@ -630,13 +819,11 @@ async function parseAiTextForBuild() {
     setFieldValue('tagline_line2', data.tagline_line2 || '');
     setFieldValue('tagline_sub', data.tagline_sub || '');
 
-    // ── 英雄屏核心参数 ──
     for (var p = 1; p <= 4; p++) {
       setFieldValue('param_' + p + '_label', data['param_' + p + '_label'] || '');
       setFieldValue('param_' + p + '_value', data['param_' + p + '_value'] || '');
     }
 
-    // ── 产品参数表 ──
     var specs = Array.isArray(data.e_specs) ? data.e_specs : [];
     for (var i = 1; i <= 20; i++) {
       var row = specs[i-1] || {};
@@ -647,7 +834,6 @@ async function parseAiTextForBuild() {
     setFieldValue('e_dim_width',  data.e_dim_width  || '');
     setFieldValue('e_dim_length', data.e_dim_length || '');
 
-    // ── 产品优势（AI生成的 emoji + 文案）──
     var advFilled = 0;
     for (var b = 1; b <= 9; b++) {
       var lbl = data['b2_label_' + b] || '';
@@ -661,19 +847,16 @@ async function parseAiTextForBuild() {
     setFieldValue('b2_subtitle', data.b2_subtitle || '');
     console.log('[AI识别] 优势标签填入 ' + advFilled + ' 项');
 
-    // ── 清洁故事文案（AI生成）──
     var b3fields = ['header_line1','header_line2','caption_line1','caption_line2','footer_line1','footer_line2'];
     b3fields.forEach(function(f) {
       setFieldValue('b3_' + f, data['b3_' + f] || '');
     });
-    // 地面材质 + 英雄屏副标题
     if (data.b3_floor_items_json) setFieldValue('b3_floor_items_json', data.b3_floor_items_json);
     if (data.hero_subtitle_pre) setFieldValue('hero_subtitle_pre', data.hero_subtitle_pre);
     if (data.hero_subtitle_em) setFieldValue('hero_subtitle_em', data.hero_subtitle_em || '');
     if (data.hero_subtitle_post) setFieldValue('hero_subtitle_post', data.hero_subtitle_post || '');
     console.log('[AI识别] 清洁故事: title1=' + (data.b3_header_line1 || '(空)'));
 
-    // ── VS对比文案（AI生成）──
     var fFields = ['f_title_line1','f_title_line1_red','f_title_line1_end',
                    'f_title_line2','f_title_line2_red',
                    'f_vs_left_title','f_vs_left_sub','f_vs_right_title','f_vs_right_sub',
@@ -683,7 +866,6 @@ async function parseAiTextForBuild() {
     });
     console.log('[AI识别] VS对比: left_title=' + (data.f_vs_left_title || '(空)'));
 
-    // ── 新增块 JSON 字段（Block G/H/I/M/P/Q/R）──
     var jsonMaps = {
       'block_h_json': 'block_h_json',
       'block_p_json': 'block_p_json',
@@ -702,13 +884,12 @@ async function parseAiTextForBuild() {
     }
     syncBlockJsonDisplay();
 
-    status.style.color = '#2a7';
+    status.style.color = 'var(--color-success)';
     status.textContent = '识别完成！优势' + advFilled + '项已填入。请核对后点击生成';
-    // 关闭进度遮罩
     document.getElementById('genOverlay').classList.remove('active');
   } catch(err) {
     console.error('[AI识别] 失败:', err);
-    status.style.color = '#c00'; status.textContent = '识别失败：' + err.message;
+    status.style.color = 'var(--color-error)'; status.textContent = '识别失败：' + err.message;
     document.getElementById('genOverlay').classList.remove('active');
   } finally {
     btn.disabled = false; btn.textContent = 'AI 识别并填表';

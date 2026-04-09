@@ -1,60 +1,113 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}管理后台{% endblock %} · 小玺AI</title>
+<link rel="stylesheet" href="/static/css/design-system.css">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: "Microsoft YaHei", sans-serif; background: #f0f2f5; color: #333; }
+  body { background: var(--color-bg-page); }
+
   .topbar {
-    background: #1a1a2e; color: #fff; padding: 12px 24px; display: flex;
-    align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100;
+    background: rgba(255,255,255,0.8);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--color-border);
+    padding: 0 24px; height: 52px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
   }
-  .topbar h1 { font-size: 16px; font-weight: 600; }
-  .topbar .nav { display: flex; gap: 18px; align-items: center; }
-  .topbar a { color: rgba(255,255,255,0.7); text-decoration: none; font-size: 13px; padding: 4px 10px; border-radius: 4px; }
-  .topbar a:hover, .topbar a.active { color: #fff; background: rgba(255,255,255,0.15); }
-  .topbar .user-info { font-size: 12px; color: rgba(255,255,255,0.5); }
-  .container { max-width: 1100px; margin: 20px auto; padding: 0 20px; }
-  .card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-  .card-title { font-size: 15px; font-weight: bold; margin-bottom: 14px; color: #222; border-left: 4px solid #E8231A; padding-left: 10px; }
+  .topbar h1 {
+    font-size: 15px; font-weight: 600; color: var(--color-text);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .topbar h1::before {
+    content: ''; width: 8px; height: 8px;
+    background: var(--color-primary); border-radius: 50%;
+  }
+  .topbar .nav { display: flex; gap: 4px; align-items: center; }
+  .topbar a {
+    color: var(--color-text-muted); text-decoration: none; font-size: 13px;
+    font-weight: 500; padding: 6px 12px; border-radius: var(--radius-md);
+    transition: all var(--transition-fast);
+  }
+  .topbar a:hover, .topbar a.active {
+    color: var(--color-text);
+    background: rgba(0,0,0,0.04);
+  }
+  .topbar .user-info { font-size: 12px; color: var(--color-text-muted); margin-left: 8px; }
+
+  .container { max-width: 1100px; margin: 24px auto; padding: 0 24px; }
+
+  .card {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow-xs);
+  }
+  .card-title {
+    font-size: 15px; font-weight: 600; color: var(--color-text);
+    margin-bottom: 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card-title::before {
+    content: ''; width: 3px; height: 16px;
+    background: var(--color-primary); border-radius: 2px;
+  }
+
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { background: #f8f9fa; padding: 10px 12px; text-align: left; color: #666; font-weight: 600; border-bottom: 2px solid #e9ecef; }
-  td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
-  tr:hover td { background: #fafafa; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
-  .badge-green { background: #e8f5e9; color: #2e7d32; }
-  .badge-red { background: #fff0f0; color: #d32f2f; }
-  .badge-blue { background: #e3f2fd; color: #1565c0; }
-  .badge-orange { background: #fff3e0; color: #e65100; }
-  .badge-gray { background: #f5f5f5; color: #666; }
-  .btn { padding: 4px 10px; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; text-decoration: none; display: inline-block; }
-  .btn-sm { padding: 3px 8px; font-size: 11px; }
-  .btn-green { background: #e8f5e9; color: #2e7d32; }
-  .btn-green:hover { background: #c8e6c9; }
-  .btn-red { background: #fff0f0; color: #d32f2f; }
-  .btn-red:hover { background: #ffcdd2; }
-  .btn-blue { background: #e3f2fd; color: #1565c0; }
-  .btn-blue:hover { background: #bbdefb; }
-  .btn-orange { background: #fff3e0; color: #e65100; }
-  .btn-orange:hover { background: #ffe0b2; }
-  .flash-msg { padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
-  .flash-success { background: #e8f5e9; color: #2e7d32; }
-  .flash-info { background: #e3f2fd; color: #1565c0; }
-  .flash-error { background: #fff0f0; color: #d32f2f; }
-  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
-  .stat-box { background: #fff; border-radius: 10px; padding: 16px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-  .stat-num { font-size: 28px; font-weight: 700; color: #E8231A; }
-  .stat-label { font-size: 12px; color: #888; margin-top: 4px; }
+  th {
+    text-align: left; padding: 10px 14px; font-size: 12px; font-weight: 600;
+    color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--color-border); background: var(--color-bg-subtle);
+  }
+  td { padding: 10px 14px; border-bottom: 1px solid #f3f4f6; color: var(--color-text-secondary); }
+  tr:hover td { background: var(--color-bg-subtle); }
+
+  .btn { padding: 5px 12px; border: none; border-radius: var(--radius-sm); font-size: 12px; font-weight: 500; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; transition: all var(--transition-fast); }
+  .btn-sm { padding: 4px 10px; font-size: 11px; }
+  .btn-green { background: var(--color-success-bg); color: #059669; }
+  .btn-green:hover { background: #d1fae5; }
+  .btn-red { background: var(--color-error-bg); color: var(--color-error); }
+  .btn-red:hover { background: #fecaca; }
+  .btn-blue { background: var(--color-info-bg); color: var(--color-primary); }
+  .btn-blue:hover { background: #dbeafe; }
+  .btn-orange { background: var(--color-warning-bg); color: #d97706; }
+  .btn-orange:hover { background: #fde68a; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .stat-box {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 20px; text-align: center;
+    box-shadow: var(--shadow-xs);
+  }
+  .stat-num { font-size: 28px; font-weight: 700; color: var(--color-primary); }
+  .stat-label { font-size: 12px; color: var(--color-text-muted); margin-top: 4px; font-weight: 500; }
+
   .pagination { display: flex; gap: 6px; justify-content: center; margin-top: 16px; }
-  .pagination a, .pagination span { padding: 6px 12px; border-radius: 4px; font-size: 13px; text-decoration: none; }
-  .pagination a { background: #fff; color: #333; border: 1px solid #ddd; }
-  .pagination a:hover { background: #f0f0f0; }
-  .pagination .current { background: #E8231A; color: #fff; }
+  .pagination a, .pagination span { padding: 6px 12px; border-radius: var(--radius-sm); font-size: 13px; text-decoration: none; }
+  .pagination a { background: var(--color-bg); color: var(--color-text-secondary); border: 1px solid var(--color-border); }
+  .pagination a:hover { background: var(--color-bg-subtle); }
+  .pagination .current { background: var(--color-primary); color: #fff; border: 1px solid var(--color-primary); }
+
   .search-bar { display: flex; gap: 8px; margin-bottom: 16px; }
-  .search-bar input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; flex: 1; max-width: 250px; }
-  .search-bar button { padding: 8px 16px; background: #E8231A; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  .search-bar input {
+    padding: 8px 14px; border: 1px solid var(--color-border); border-radius: var(--radius-md);
+    font-size: 13px; flex: 1; max-width: 260px; outline: none;
+    font-family: var(--font-sans); color: var(--color-text);
+    transition: border-color var(--transition-fast);
+  }
+  .search-bar input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-light); }
+  .search-bar button {
+    padding: 8px 18px; background: var(--color-primary); color: #fff;
+    border: none; border-radius: var(--radius-md); font-size: 13px; font-weight: 500;
+    cursor: pointer; font-family: var(--font-sans);
+    transition: background var(--transition-fast);
+  }
+  .search-bar button:hover { background: var(--color-primary-hover); }
 </style>
 </head>
 <body>
