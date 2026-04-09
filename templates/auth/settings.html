@@ -70,16 +70,10 @@
   <div class="card">
     <div class="card-title">API Key 设置</div>
 
-    {% if current_user.is_paid %}
-      <div class="status-box" style="background:#e8f5e9; color:#2e7d32;">
-        您是付费用户，默认使用平台 API Key。也可以填写自己的 Key 优先使用。
-      </div>
-    {% else %}
-      <div class="status-box" style="background:#fff8e1; color:#f57f17;">
-        您是免费用户。要使用 AI 识别功能，请填写自己的 DeepSeek API Key。
-        <br>获取方式：访问 <a href="https://platform.deepseek.com" target="_blank" style="color:#1565c0;">platform.deepseek.com</a> 注册并创建 Key。
-      </div>
-    {% endif %}
+    <div class="status-box" style="background:#fff8e1; color:#f57f17;">
+      使用 AI 识别功能需要配置您自己的 DeepSeek API Key。
+      <br>获取方式：访问 <a href="https://platform.deepseek.com" target="_blank" style="color:#1565c0;">platform.deepseek.com</a> 注册并创建 Key。
+    </div>
 
     <form method="POST" action="{{ url_for('user_settings') }}">
       <div class="form-group">
@@ -87,9 +81,7 @@
         <input type="password" name="custom_api_key" placeholder="{{ '已配置（重新输入可更换）' if has_custom_key else '请输入 sk-...' }}" autocomplete="off">
         <div class="hint">
           {% if has_custom_key %}
-            当前状态：已配置自定义 Key（AI 识别将优先使用您的 Key）
-          {% elif current_user.is_paid %}
-            当前状态：使用平台 Key
+            当前状态：已配置（AI 识别功能可用）
           {% else %}
             当前状态：未配置（AI 识别功能不可用）
           {% endif %}

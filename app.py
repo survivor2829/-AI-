@@ -79,7 +79,7 @@ def _before_request():
     if current_user.is_authenticated:
         # 更新最后活跃时间（每次请求写一次太频繁，改为5分钟更新一次）
         now = _dt.utcnow()
-        if not current_user.last_active or (now - current_user.last_active).seconds > 300:
+        if not current_user.last_active or (now - current_user.last_active).total_seconds() > 300:
             current_user.last_active = now
             db.session.commit()
         # 未审核用户只能访问 auth 相关页面
@@ -703,10 +703,10 @@ def user_settings():
 
 def _get_user_api_key():
     """获取当前用户应使用的 API Key，返回 (key, source)
-    source: 'custom' | 'platform' | None
+    source: 'custom' | None
+    所有用户（含管理员）均需自行配置 Key
     """
     from crypto_utils import decrypt_api_key
-    # 优先使用用户自定义 Key
     if current_user.custom_api_key_enc:
         try:
             key = decrypt_api_key(current_user.custom_api_key_enc)
@@ -714,12 +714,6 @@ def _get_user_api_key():
                 return key, "custom"
         except Exception:
             pass
-    # 付费用户使用平台 Key
-    if current_user.is_paid and DEEPSEEK_API_KEY:
-        return DEEPSEEK_API_KEY, "platform"
-    # 管理员也使用平台 Key
-    if current_user.is_admin and DEEPSEEK_API_KEY:
-        return DEEPSEEK_API_KEY, "platform"
     return None, None
 
 
@@ -1050,7 +1044,7 @@ def parse_text_for_build(product_type):
     # 检查用户是否有 API Key 可用
     api_key, key_source = _get_user_api_key()
     if not api_key:
-        return jsonify({"error": "请先在「账号设置」中配置您的 DeepSeek API Key，或联系管理员开通付费权限"}), 403
+        return jsonify({"error": "请先在「账号设置」中配置您的 DeepSeek API Key"}), 403
 
     # 直接调 DeepSeek —— 必须用 AI 才能生成 advantage_labels 和 clean_story
     try:
