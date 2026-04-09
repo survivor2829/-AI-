@@ -33,7 +33,7 @@
   {% if current_user.is_admin %}
     <a href="/admin/users" class="admin-link">管理后台</a>
   {% endif %}
-  <a href="/auth/logout">退出</a>
+  <form method="POST" action="/auth/logout" style="display:inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" style="background:none;border:none;color:rgba(255,255,255,0.6);font-size:13px;cursor:pointer;padding:4px 10px;border-radius:4px;">退出</button></form>
 </div>
 <div class="header">
   <h1>小玺AI · 产品详情页生成器</h1>

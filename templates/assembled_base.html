@@ -165,7 +165,7 @@ function doExport() {
   var overlay = document.getElementById('exportOverlay');
   var pt = document.body.getAttribute('data-product-type') || '设备类';
   btn.disabled = true; overlay.classList.add('active'); status.textContent = '';
-  fetch(window.location.pathname.replace('/build/', '/export/'), { method: 'POST' })
+  fetch(window.location.pathname.replace('/build/', '/export/'), { method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token() }}'} })
     .then(function(resp) { if (!resp.ok) return resp.json().then(function(d) { throw new Error(d.error || '导出失败'); }); return resp.blob(); })
     .then(function(blob) { var url = URL.createObjectURL(blob); var a = document.createElement('a'); a.href = url; a.download = pt + '_详情页.png'; a.click(); URL.revokeObjectURL(url); overlay.classList.remove('active'); btn.disabled = false; status.textContent = '✓ 导出成功'; setTimeout(function(){ status.textContent = ''; }, 3000); })
     .catch(function(err) { overlay.classList.remove('active'); btn.disabled = false; status.textContent = '✗ ' + err.message; });

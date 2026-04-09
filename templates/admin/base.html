@@ -76,5 +76,6 @@
   {% endwith %}
   {% block content %}{% endblock %}
 </div>
+<script>document.querySelectorAll('form[method="POST"]').forEach(function(f){if(!f.querySelector('[name=csrf_token]')){var i=document.createElement('input');i.type='hidden';i.name='csrf_token';i.value='{{ csrf_token() }}';f.appendChild(i);}});</script>
 </body>
 </html>

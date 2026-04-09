@@ -143,6 +143,7 @@
 </div>
 
 <form method="POST" enctype="multipart/form-data" id="buildForm">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <input type="hidden" name="product_type" value="{{ product_type }}">
 
 {# 隐藏字段：英雄屏文案（AI识别后填入，或使用默认值） #}
@@ -590,7 +591,7 @@ function normalizeParsedForBuild(data) {
 }
 
 async function postJson(url, payload) {
-  var resp = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+  var resp = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json', 'X-CSRFToken': '{{ csrf_token() }}'}, body:JSON.stringify(payload) });
   var text = await resp.text();
   var json;
   try { json = JSON.parse(text); } catch(e) { throw new Error('接口返回非JSON（HTTP ' + resp.status + '）'); }

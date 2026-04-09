@@ -57,7 +57,7 @@
               <button class="btn btn-sm btn-blue">{{ '取消管理' if u.is_admin else '设为管理' }}</button>
             </form>
             <form method="POST" action="{{ url_for('admin.delete_user', uid=u.id) }}" style="display:inline"
-                  onsubmit="return confirm('确定删除用户 {{ u.username }}？此操作不可恢复')">
+                  onsubmit="return confirm('确定删除用户 ' + {{ u.username | tojson }} + '？此操作不可恢复')">
               <button class="btn btn-sm btn-red">删除</button>
             </form>
           {% endif %}

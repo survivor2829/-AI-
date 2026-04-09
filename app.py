@@ -18,9 +18,10 @@ from dotenv import load_dotenv
 # 加载 .env 文件（本地开发用，生产环境靠系统环境变量）
 load_dotenv(Path(__file__).parent / ".env")
 
-from flask import Flask, request, jsonify, send_file, send_from_directory, render_template, redirect, url_for, abort, flash
+import threading
+from flask import Flask, request, jsonify, send_file, render_template, redirect, url_for, abort, flash
 from flask_login import login_required, current_user
-from werkzeug.utils import secure_filename
+from flask_wtf.csrf import CSRFProtect
 
 BASE_DIR = Path(__file__).parent
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -48,7 +49,10 @@ PROXY = {"http": _proxy_url, "https": _proxy_url} if _proxy_url else {}
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-change-me-in-production")
+_secret_key = os.environ.get("SECRET_KEY", "")
+if not _secret_key and os.environ.get("FLASK_ENV") != "development":
+    print("[警告] 未设置 SECRET_KEY 环境变量，使用开发默认值（生产环境请务必设置）")
+app.config["SECRET_KEY"] = _secret_key or "dev-change-me-in-production"
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///wubaoyun.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -56,6 +60,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 from extensions import db, login_manager, migrate
 from models import User, GenerationLog
 
+csrf = CSRFProtect(app)
 db.init_app(app)
 login_manager.init_app(app)
 migrate.init_app(app, db)
@@ -110,21 +115,25 @@ def _no_cache(response):
 REMBG_SESSION = None
 REMBG_AVAILABLE = False
 _rembg_loaded = False
+_rembg_lock = threading.Lock()
 
 def _ensure_rembg():
     """首次抠图时才加载模型，减少启动内存占用"""
     global REMBG_SESSION, REMBG_AVAILABLE, _rembg_loaded
     if _rembg_loaded:
         return REMBG_AVAILABLE
-    _rembg_loaded = True
-    try:
-        from rembg import new_session
-        REMBG_SESSION = new_session("isnet-general-use")
-        REMBG_AVAILABLE = True
-        print("[rembg] 模型加载成功，产品图将自动抠图")
-    except Exception as e:
-        REMBG_AVAILABLE = False
-        print(f"[rembg] 模型加载失败（{e}），产品图将保留原背景")
+    with _rembg_lock:
+        if _rembg_loaded:
+            return REMBG_AVAILABLE
+        _rembg_loaded = True
+        try:
+            from rembg import new_session
+            REMBG_SESSION = new_session("isnet-general-use")
+            REMBG_AVAILABLE = True
+            print("[rembg] 模型加载成功，产品图将自动抠图")
+        except Exception as e:
+            REMBG_AVAILABLE = False
+            print(f"[rembg] 模型加载失败（{e}），产品图将保留原背景")
     return REMBG_AVAILABLE
 
 # 仅检测是否安装，不加载模型
@@ -685,7 +694,7 @@ def index():
 @app.route("/settings", methods=["GET", "POST"])
 @login_required
 def user_settings():
-    from crypto_utils import encrypt_api_key, decrypt_api_key
+    from crypto_utils import encrypt_api_key
     has_custom_key = bool(current_user.custom_api_key_enc)
 
     if request.method == "POST":
@@ -1307,7 +1316,7 @@ def export_generic(product_type):
     html_content = html_content.replace('src="/static/', f'src="file:///{base_url_str}/static/')
     html_content = html_content.replace("src='/static/", f"src='file:///{base_url_str}/static/")
 
-    temp_html = OUTPUT_DIR / f"_export_{product_type}.html"
+    temp_html = OUTPUT_DIR / f"_export_{product_type}_{current_user.id}_{uuid.uuid4().hex[:8]}.html"
     with open(temp_html, "w", encoding="utf-8") as f:
         f.write(html_content)
 
@@ -1356,6 +1365,7 @@ def export_generic(product_type):
 # ── 设备类静态预览（调试用）──────────────────────────────────────────
 
 @app.route("/preview/设备类")
+@login_required
 def preview_equipment():
     cfg = _load_build_config(PRODUCT_TYPE) or {}
     _bhc = cfg.get("blocks_hardcoded") or {}

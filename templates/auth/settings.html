@@ -76,6 +76,7 @@
     </div>
 
     <form method="POST" action="{{ url_for('user_settings') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="form-group">
         <label>DeepSeek API Key</label>
         <input type="password" name="custom_api_key" placeholder="{{ '已配置（重新输入可更换）' if has_custom_key else '请输入 sk-...' }}" autocomplete="off">

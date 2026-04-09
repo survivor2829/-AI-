@@ -61,6 +61,7 @@
   {% endwith %}
 
   <form method="POST" action="{{ url_for('auth.register') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-group">
       <label>用户名 <span style="color:#E8231A">*</span></label>
       <input type="text" name="username" placeholder="请输入用户名" required autofocus>
