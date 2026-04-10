@@ -8,6 +8,10 @@ services:
     volumes:
       - uploads:/app/static/uploads
       - outputs:/app/static/outputs
+      # 代码热挂载 — 改完代码只需 docker compose restart，不用 --build
+      - ./app.py:/app/app.py:ro
+      - ./templates:/app/templates:ro
+      - ./static/设备类:/app/static/设备类:ro
     restart: unless-stopped
 
 volumes:
