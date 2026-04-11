@@ -1047,7 +1047,7 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             '    {"year":"年份","text":"里程碑事件"}\n'
             '  ],\n'
             '  // brand_story_lines: 提取品牌历史里程碑，没有则返回空数组\n'
-            '  "scenes": [{"title":"场景名","desc":"一句话描述"}],\n'
+            '  "scenes": [{"name":"场景名","desc":"一句话描述"}],\n'
             '  // scenes: 从文案提取适用场景（如商场、医院、工厂），没有则返回空数组\n'
             '  "kpis": [{"number":"数字+单位","label":"指标说明"}],\n'
             '  // kpis: 从文案提取关键效率数据（如1368㎡/h、3.5h续航），没有则返回空数组\n'
@@ -1722,6 +1722,11 @@ def _render_single_block(block_id, block_data):
     if not reg:
         return ""
     tpl_path, _ = reg
+    # block_h: AI 可能返回 title 而非 name，做兼容映射
+    if block_id == "block_h" and "scenes" in block_data:
+        for s in block_data["scenes"]:
+            if "title" in s and "name" not in s:
+                s["name"] = s.pop("title")
     try:
         return render_template(tpl_path, **block_data)
     except Exception as e:
@@ -2229,7 +2234,7 @@ def export_main_images_zip(product_type):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
             browser = pw.chromium.launch(
-                args=["--disable-web-security", "--allow-file-access-from-files"]
+                args=["--no-sandbox", "--disable-web-security", "--allow-file-access-from-files"]
             )
             ctx = browser.new_context(
                 viewport={"width": 800, "height": 800},
@@ -2365,7 +2370,7 @@ def export_generic(product_type):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
             browser = pw.chromium.launch(
-                args=["--disable-web-security", "--allow-file-access-from-files"]
+                args=["--no-sandbox", "--disable-web-security", "--allow-file-access-from-files"]
             )
             ctx = browser.new_context(
                 viewport={"width": 750, "height": 900},
