@@ -1552,6 +1552,7 @@ def _assemble_all_blocks(product_type, mapped_fields, images, cfg):
         if _v:
             block_f[_f] = _v
     block_f["product_image"] = product_image
+    block_f["effect_image"] = effect_image  # 有效果图时整张顶替 bg+product 上半区
 
     fixed_selling_images = [
         f"/static/{product_type}/{fname}"
@@ -1889,6 +1890,7 @@ def build_submit_generic(product_type):
         if _v:
             block_f[_field] = _v
     block_f["product_image"] = product_image
+    block_f["effect_image"] = effect_image  # 有效果图时整张顶替 bg+product 上半区
 
     # ── 固定卖点图 ──
     fixed_selling_images = [

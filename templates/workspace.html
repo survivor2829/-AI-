@@ -487,12 +487,12 @@
           <div class="upload-preview"></div>
         </div>
 
-        <!-- Logo -->
-        <div class="upload-box" id="upload_logo">
+        <!-- 效果图 -->
+        <div class="upload-box" id="upload_effect">
           <input type="file" accept="image/*" style="display:none">
           <div class="upload-placeholder">
-            <span class="upload-icon">🏷️</span>
-            <span class="upload-label">Logo</span>
+            <span class="upload-icon">🎬</span>
+            <span class="upload-label">效果图</span>
             <span class="upload-required">可选</span>
           </div>
           <div class="upload-preview"></div>
@@ -685,7 +685,7 @@
   /* ── State ─────────────────────────────────────────────────── */
   let productImageUrl = '';
   let sceneImageUrl = '';
-  let logoImageUrl = '';
+  let effectImageUrl = '';
   let qrImageUrl = '';
   let currentProductType = '{{ initial_product_type|default("设备类") }}';
   let currentThemeId = 'classic-red';
@@ -782,7 +782,7 @@
     placeholder.style.display = 'flex';
     if (boxId === 'upload_product') productImageUrl = '';
     else if (boxId === 'upload_scene') sceneImageUrl = '';
-    else if (boxId === 'upload_logo') logoImageUrl = '';
+    else if (boxId === 'upload_effect') effectImageUrl = '';
     else if (boxId === 'upload_qr') qrImageUrl = '';
   }
 
@@ -860,7 +860,7 @@
         parsed_data: parsed,
         product_image: productImageUrl,
         scene_image: sceneImageUrl || '',
-        logo_image: logoImageUrl || '',
+        effect_image: effectImageUrl || '',
         qr_image: qrImageUrl || '',
         theme_id: currentThemeId
       });
@@ -884,7 +884,7 @@
         parsed_data: parsed,
         product_image: productImageUrl,
         scene_image: sceneImageUrl || '',
-        logo_image: logoImageUrl || '',
+        effect_image: effectImageUrl || '',
         theme_id: currentThemeId
       }).then(result => {
         renderMainImages(result.main_images || []);
@@ -1105,7 +1105,7 @@
         parsed_data: currentBuildData.parsed,
         product_image: productImageUrl,
         scene_image: sceneImageUrl || '',
-        logo_image: logoImageUrl || '',
+        effect_image: effectImageUrl || '',
         qr_image: qrImageUrl || '',
       });
       if (wrapper) {
@@ -1390,7 +1390,7 @@
           parsed_data: currentBuildData.parsed,
           product_image: productImageUrl,
           scene_image: sceneImageUrl || '',
-          logo_image: logoImageUrl || '',
+          effect_image: effectImageUrl || '',
           theme_id: currentThemeId,
         })
       });
@@ -1412,7 +1412,7 @@
     loadThemes();
     initUploadBox('upload_product', url => { productImageUrl = url; });
     initUploadBox('upload_scene', url => { sceneImageUrl = url; });
-    initUploadBox('upload_logo', url => { logoImageUrl = url; });
+    initUploadBox('upload_effect', url => { effectImageUrl = url; });
     initUploadBox('upload_qr', url => { qrImageUrl = url; });
     selectCategory(currentProductType);
   });
