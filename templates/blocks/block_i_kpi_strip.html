@@ -14,9 +14,13 @@
   </div>
   <div style="margin-top:14px; height:2px; background:linear-gradient(90deg, var(--theme-primary, #E8231A) 0%, rgba(232,35,26,0.12) 60%, transparent 100%); border-radius:1px;"></div>
 
+  {% set _n = kpis|length %}
+  {% if _n == 1 %}{% set _w = '100%' %}
+  {% elif _n == 3 %}{% set _w = 'calc(33.333% - 8px)' %}
+  {% else %}{% set _w = 'calc(50% - 6px)' %}{% endif %}
   <div style="margin-top:20px; display:flex; flex-wrap:wrap; gap:12px;">
     {% for k in kpis %}
-    <div style="width:calc(50% - 6px); border-radius:16px; border:1px solid #EAECF0; background:linear-gradient(180deg, #FAFBFC 0%, #F5F6F8 100%); padding:18px 18px 16px; box-sizing:border-box; position:relative; overflow:hidden;">
+    <div style="width:{{ _w }}; border-radius:16px; border:1px solid #EAECF0; background:linear-gradient(180deg, #FAFBFC 0%, #F5F6F8 100%); padding:18px 18px 16px; box-sizing:border-box; position:relative; overflow:hidden;">
       <!-- 卡片左上角装饰 -->
       <div style="position:absolute; top:0; left:0; width:3px; height:32px; background:var(--theme-primary, #E8231A); border-radius:0 0 2px 0;"></div>
       <div style="font-size:12px; color:#667085; font-weight:700; letter-spacing:0.5px; text-transform:uppercase;">{{ k.label }}</div>
