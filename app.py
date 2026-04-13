@@ -1049,8 +1049,9 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             '  // brand_story_lines: 提取品牌历史里程碑，没有则返回空数组\n'
             '  "scenes": [{"name":"场景名","desc":"一句话描述"}],\n'
             '  // scenes: 从文案提取适用场景（如商场、医院、工厂），没有则返回空数组\n'
-            '  "kpis": [{"number":"数字+单位","label":"指标说明"}],\n'
-            '  // kpis: 从文案提取关键效率数据（如1368㎡/h、3.5h续航），没有则返回空数组\n'
+            '  "kpis": [{"label":"指标名（如 理论效率）","value":"纯数字（如 3600）","unit":"单位（如 ㎡/h）","note":"卖点说明（10字内，可空）"}],\n'
+            '  // kpis: 严格从文案提取；每项必须有 label + value，缺 value 不要塞进来；unit/note 可空\n'
+            '  // 例："1368㎡/h"应拆为 value=1368 unit=㎡/h；"3.5小时续航"拆为 label=续航时间 value=3.5 unit=小时\n'
             '  "faqs": [\n'
             '    {"question":"买家常见问题","answer":"基于文案数据的简洁回答（30字以内）"}\n'
             '  ],\n'
@@ -1463,6 +1464,35 @@ def _enrich_scenes_with_images(scenes):
     return scenes
 
 
+def _clean_kpis(kpis):
+    """清洗 block_i KPI 数据：
+    1. number → value 兼容旧 AI 返回
+    2. 剔除 value 为空的项（否则模板只显示 label 没数字，用户看不懂）
+    3. "3600㎡/h" 这种混写，若 unit 为空则拆出单位
+    返回被原地修改后的列表。
+    """
+    if not isinstance(kpis, list):
+        return kpis
+    cleaned = []
+    for k in kpis:
+        if not isinstance(k, dict):
+            continue
+        if "number" in k and "value" not in k:
+            k["value"] = k.pop("number")
+        val = str(k.get("value", "")).strip()
+        if not val:
+            continue  # 没数字就跳过，不塞空壳
+        if not (k.get("unit") or "").strip():
+            m = re.match(r'^\s*([\+\-]?[\d\.,]+)\s*(.*)$', val)
+            if m and m.group(2).strip():
+                k["value"] = m.group(1)
+                k["unit"] = m.group(2).strip()
+        cleaned.append(k)
+    kpis.clear()
+    kpis.extend(cleaned)
+    return kpis
+
+
 def _assemble_all_blocks(product_type, mapped_fields, images, cfg):
     """
     Assemble all block data from mapped fields and images.
@@ -1663,6 +1693,8 @@ def _assemble_all_blocks(product_type, mapped_fields, images, cfg):
 
     # 场景图补全：按 scene.name 从本地场景图库匹配
     _enrich_scenes_with_images(extra_blocks.get("block_h", {}).get("scenes", []))
+    # KPI 清洗：number→value 兼容、剔除无数字的空壳、拆分"3600㎡/h"这种混写
+    _clean_kpis(extra_blocks.get("block_i", {}).get("kpis", []))
 
     return {
         "product_type": product_type,
@@ -2009,6 +2041,8 @@ def build_submit_generic(product_type):
 
     # 场景图补全：按 scene.name 从本地场景图库匹配
     _enrich_scenes_with_images(extra_blocks.get("block_h", {}).get("scenes", []))
+    # KPI 清洗：number→value 兼容、剔除无数字的空壳、拆分"3600㎡/h"这种混写
+    _clean_kpis(extra_blocks.get("block_i", {}).get("kpis", []))
 
     data = {
         "product_type": product_type,
