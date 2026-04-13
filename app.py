@@ -1413,6 +1413,56 @@ def generate_ai_images():
 # ── 构建系统（设备类，blocks 引擎）──────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════
 
+# 场景图库：文件名 → 别名关键词（中英文+近义词，模糊匹配）
+# 图文件位于 static/scene_bank/{name}.jpg，来自 Unsplash CC0 授权
+_SCENE_IMG_ALIASES = {
+    "商场.jpg":     ["商场", "购物中心", "购物广场", "商超", "mall", "shopping", "plaza"],
+    "酒店大堂.jpg": ["酒店", "hotel", "lobby", "宾馆"],  # 不含"大堂"，避免"写字楼大堂"误匹配
+    "医院.jpg":     ["医院", "诊所", "hospital", "clinic", "医疗", "卫生院"],
+    "工厂车间.jpg": ["工厂", "车间", "factory", "工业", "生产线", "manufacturing", "流水线"],
+    "仓库.jpg":     ["仓库", "仓储", "warehouse", "物流", "储运"],
+    "写字楼.jpg":   ["写字楼", "办公楼", "办公", "office", "楼宇", "商务楼"],
+    "超市.jpg":     ["超市", "supermarket", "卖场", "便利店"],
+    "机场.jpg":     ["机场", "航站楼", "airport", "terminal", "候机"],
+    "火车站.jpg":   ["火车站", "高铁站", "train station", "候车厅", "候车"],
+    "地铁站.jpg":   ["地铁", "subway", "metro", "站台"],
+    "学校.jpg":     ["学校", "校园", "教学楼", "school", "university", "大学", "教学", "学府"],
+    "餐厅.jpg":     ["餐厅", "餐饮", "食堂", "restaurant", "cafeteria", "饭店"],
+    "健身房.jpg":   ["健身", "gym", "fitness"],
+    "体育馆.jpg":   ["体育馆", "体育", "场馆", "stadium", "gymnasium", "运动"],
+    "展厅.jpg":     ["展厅", "展会", "exhibition", "会展", "展览"],
+}
+
+
+def _match_scene_image(name):
+    """场景名 → 本地图 URL；匹配不到返回空串。"""
+    if not name:
+        return ""
+    key = str(name).strip().lower()
+    if not key:
+        return ""
+    for fname, aliases in _SCENE_IMG_ALIASES.items():
+        for a in aliases:
+            if a.lower() in key:
+                return f"/static/scene_bank/{fname}"
+    return ""
+
+
+def _enrich_scenes_with_images(scenes):
+    """遍历 scenes，给 image 为空的项按 name 从本地图库补图。"""
+    if not isinstance(scenes, list):
+        return scenes
+    for s in scenes:
+        if not isinstance(s, dict):
+            continue
+        if (s.get("image") or "").strip():
+            continue
+        img = _match_scene_image(s.get("name") or s.get("title") or "")
+        if img:
+            s["image"] = img
+    return scenes
+
+
 def _assemble_all_blocks(product_type, mapped_fields, images, cfg):
     """
     Assemble all block data from mapped fields and images.
@@ -1610,6 +1660,9 @@ def _assemble_all_blocks(product_type, mapped_fields, images, cfg):
                     extra_blocks[block_key][data_key] = _parsed_val
             except (json.JSONDecodeError, ValueError):
                 pass
+
+    # 场景图补全：按 scene.name 从本地场景图库匹配
+    _enrich_scenes_with_images(extra_blocks.get("block_h", {}).get("scenes", []))
 
     return {
         "product_type": product_type,
@@ -1953,6 +2006,9 @@ def build_submit_generic(product_type):
                     extra_blocks[block_key][data_key] = _parsed
             except (json.JSONDecodeError, ValueError):
                 pass
+
+    # 场景图补全：按 scene.name 从本地场景图库匹配
+    _enrich_scenes_with_images(extra_blocks.get("block_h", {}).get("scenes", []))
 
     data = {
         "product_type": product_type,

@@ -28,6 +28,7 @@ static/设备类/ref_*.png
 
 # 允许通用场景图片
 !static/scenes/*.jpg
+!static/scene_bank/*.jpg
 
 # 工具生成文件
 .omc/
