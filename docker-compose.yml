@@ -10,6 +10,8 @@ services:
     volumes:
       - uploads:/app/static/uploads
       - outputs:/app/static/outputs
+      # 数据库持久化 — 管理员账号/用户/日志都存这里，绝不能丢
+      - ./instance:/app/instance
       # 代码热挂载 — 改完代码只需 docker compose restart，不用 --build
       - ./app.py:/app/app.py:ro
       - ./templates:/app/templates:ro
