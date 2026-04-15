@@ -4,24 +4,21 @@ FROM python:3.11-slim
 RUN sed -i 's|deb.debian.org|mirrors.cloud.tencent.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null; \
     sed -i 's|deb.debian.org|mirrors.cloud.tencent.com|g' /etc/apt/sources.list 2>/dev/null; true
 
-# 系统依赖（Playwright Chromium 需要）— 极少变化，缓存命中率高
-# 关键:libxfixes3 / libxext6 / libatspi2.0-0 是 Chromium 启动必需,少一个都会
-# 报 "error while loading shared libraries: libXfixes.so.3" 之类的致命错
+# 中文字体 + wget/curl(Playwright 的 Chromium 系统依赖交给 --with-deps 自动装)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget curl fonts-wqy-zenhei fonts-wqy-microhei fonts-noto-cjk \
-    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
-    libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 \
-    libgbm1 libpango-1.0-0 libcairo2 libasound2 libxshmfence1 \
-    libxfixes3 libxext6 libatspi2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # 国内 pip 源（腾讯云）
 RUN pip config set global.index-url https://mirrors.cloud.tencent.com/pypi/simple/ && \
     pip config set global.trusted-host mirrors.cloud.tencent.com
 
-# Playwright Chromium — 放在 requirements.txt 之前！
-# 这样改 requirements.txt 不会触发重新下载 200MB 的 Chromium
-RUN pip install --no-cache-dir playwright && playwright install chromium
+# Playwright Chromium + 所有系统依赖 — 放在 requirements.txt 之前!
+# --with-deps 官方维护的依赖列表,会自动 apt install libxfixes3 / libnss3 /
+# libatk1.0-0 / libxext6 / libatspi2.0-0 等 25+ 个 Chromium 必需库,
+# 比手动维护列表稳,跟 chromium 版本同步更新
+RUN pip install --no-cache-dir playwright && \
+    playwright install --with-deps chromium
 
 WORKDIR /app
 
