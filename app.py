@@ -580,9 +580,11 @@ def _map_parsed_to_form_fields(parsed: dict) -> dict:
             if isinstance(item, dict):
                 result[f"b2_icon_{i+1}"] = _to_str(item.get("emoji", "✅"))
                 result[f"b2_label_{i+1}"] = _to_str(item.get("text", ""))
+                result[f"b2_desc_{i+1}"] = _to_str(item.get("desc", ""))
             elif isinstance(item, str):
                 result[f"b2_icon_{i+1}"] = "✅"
                 result[f"b2_label_{i+1}"] = item
+                result[f"b2_desc_{i+1}"] = ""
         n = len(advantages[:9])
         result["b2_title_num"] = str(n)
         result["b2_title_text"] = "大核心优势"
@@ -616,6 +618,10 @@ def _map_parsed_to_form_fields(parsed: dict) -> dict:
             result["f_vs_right_sub"] = _to_str(vs.get("right_sub", ""))
             result["f_vs_left_bottom"] = left_bottom
             result["f_vs_right_bottom"] = _to_str(vs.get("right_bottom", ""))
+            # vs_rows: 多维度对比行
+            vs_rows = vs.get("vs_rows", [])
+            if isinstance(vs_rows, list) and vs_rows:
+                result["f_vs_rows_json"] = json.dumps(vs_rows, ensure_ascii=False)
 
     # ── 适用地面材质（AI生成）──
     floor_items = parsed.get("floor_items", [])
@@ -891,6 +897,7 @@ _NO_FABRICATION_RULE = (
     "   用户给了多少参数就提取多少，不要截断、不要省略、不要合并。\n"
     "4. floor_items（适用地面）：只根据产品实际用途判断，如果无法确定就返回空数组。\n"
     "5. vs_comparison 中的数字（替代人数、节省金额）必须有文案依据，没有依据就留空。\n"
+    "   vs_rows 中的 left 值必须引用文案中的真实参数数据（如效率、宽度、容量），不能笼统写'高效'。\n"
     "6. story_title/story_desc：必须用文案中的真实参数数据，不能编造数字。\n"
     "7. 售后承诺、质保年限等：只有文案中明确写了才能填，没写的一律不填。\n"
     "8. 不要编造用户文案中没有提到的服务承诺（如送货上门、上门培训等）。\n\n"
@@ -1091,8 +1098,8 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             '  "slogan": "主标语（一句话概括产品最大卖点，用真实数据）",\n'
             '  "sub_slogan": "副标语（补充说明）",\n'
             '  "advantages": [\n'
-            '    {"emoji":"🧹","text":"超宽清扫"},\n'
-            '    {"emoji":"⚡","text":"高效清扫"},\n'
+            '    {"emoji":"🧹","text":"超宽清扫","desc":"660mm大直径主刷，单次覆盖更大面积"},\n'
+            '    {"emoji":"⚡","text":"持久续航","desc":"90L大容量锂电池，连续工作4小时以上"},\n'
             '    ...\n'
             '  ],\n'
             '  "story_title_1": "清洁故事大标题1（突出核心清洁机构，如 660mm大直径主刷+4边刷设计）",\n'
@@ -1102,13 +1109,20 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             '  "story_bottom_1": "底部卖点1（最亮眼的数字宣称，如 14600m²/h超大清扫效率，没有突出数据就留空字符串）",\n'
             '  "story_bottom_2": "底部卖点2（效果短句，如 大场所清扫首选）",\n'
             '  "vs_comparison": {\n'
-            '    "replace_count": "只填数字，如 8-10 或 3-5（估算可替代人数，没依据填 多）",\n'
+            '    "replace_count": "只填数字，如 8-10 或 3-5（根据效率参数估算可替代人数，没依据填 多）",\n'
             '    "annual_saving": "只填金额，如 26W+ 或 15W+（估算年省人力成本，没依据留空）",\n'
             '    "left_title": "产品类型简称，不超过8字（如 智能洗扫机器人）",\n'
-            '    "left_sub": "机械优势3-6字（如 省时省钱省心）",\n'
-            '    "right_sub": "人工劣势3-6字（如 费时费钱费心）",\n'
-            '    "left_bottom": "机械结论两行用<br>隔开（如 1台可顶8-10人<br>一年劲省26W+元）",\n'
-            '    "right_bottom": "人工结论两行用<br>隔开（如 人工效率低<br>成本高）"\n'
+            '    "left_sub": "基于产品参数总结的机械核心优势，6-10字",\n'
+            '    "right_sub": "对应的人工劣势，6-10字",\n'
+            '    "left_bottom": "机械结论，引用文案中的关键数据，两行用<br>隔开",\n'
+            '    "right_bottom": "人工结论，对比说明劣势，两行用<br>隔开",\n'
+            '    "vs_rows": [\n'
+            '      {"label":"对比维度（如 清洁效率）","left":"机器数据（如 3600㎡/h）","right":"人工数据（如 300㎡/h）"},\n'
+            '      {"label":"工作时长","left":"连续工作4-6小时","right":"需轮班休息"},\n'
+            '      {"label":"清洁质量","left":"标准化洁净度","right":"因人而异"},\n'
+            '      ...\n'
+            '    ]\n'
+            '    // vs_rows: 从产品文案参数中提炼3-5个具体对比维度，left必须引用真实参数数据，right用合理的人工对照\n'
             '  },\n'
             '  "tech_items": [\n'
             '    {"title":"技术/部件名称（如 感应电机）","desc":"一句话技术说明（如 高效稳定，适配长时间作业）"}\n'
@@ -1161,9 +1175,11 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             "- 严格从用户提供的产品文案中提取，每一条必须有原文依据\n"
             "- 如果文案只提到了3个卖点，就只返回3个，不要凑数\n"
             "- 绝对不要添加文案中没有的功能（如：文案没提APP就不能写智慧管理）\n"
-            "- 每项2-6个字，附带一个贴切的emoji\n\n"
+            "- text: 2-6个字的卖点短语，附带一个贴切的emoji\n"
+            "- desc: 10-20字的补充说明，必须引用文案中的真实参数/数据，让卖点有据可查\n"
+            "- desc示例：text='超宽清扫'→desc='1800mm清扫宽度，大面积一次覆盖'\n\n"
             "【tech_items 与 advantages 的区别】\n"
-            "- advantages 是用户感知的卖点短语（如\"超宽清扫\"），2-6字，附emoji\n"
+            "- advantages 是用户感知的卖点短语（如\"超宽清扫\"），2-6字text+10-20字desc补充说明\n"
             "- tech_items 是技术实现细节（如\"感应电机\"），含标题+一句话技术说明\n"
             "- 两者可能描述同一特性的不同角度，这是正常的\n\n"
             "【扩展字段规则】\n"
@@ -1238,11 +1254,15 @@ def _call_deepseek_parse(raw_text: str, product_type: str = "设备类", api_key
         if _field in parsed:
             parsed[_field] = _strip_extreme_words(_to_str(parsed[_field]))
     for _adv in parsed.get("advantages", []):
-        if isinstance(_adv, dict) and "text" in _adv:
-            _adv["text"] = _strip_extreme_words(_to_str(_adv["text"]))
+        if isinstance(_adv, dict):
+            if "text" in _adv:
+                _adv["text"] = _strip_extreme_words(_to_str(_adv["text"]))
+            if "desc" in _adv:
+                _adv["desc"] = _strip_extreme_words(_to_str(_adv["desc"]))
     # VS对比字段极限词过滤
     vs = parsed.get("vs_comparison", {})
     if isinstance(vs, dict):
+        _strip_extreme_in_list(vs.get("vs_rows", []), ["left", "right"])
         for _vf in ["replace_count", "annual_saving", "left_title", "left_sub",
                      "right_sub", "left_bottom", "right_bottom"]:
             if _vf in vs:
@@ -2683,8 +2703,9 @@ def _assemble_all_blocks(product_type, mapped_fields, images, cfg):
     for i in range(1, 10):
         label = field(f"b2_label_{i}", "")
         icon = field(f"b2_icon_{i}", "")
+        desc = field(f"b2_desc_{i}", "")
         if label:
-            b2_items.append({"icon_image": "", "icon_text": icon or "✅", "label": label})
+            b2_items.append({"icon_image": "", "icon_text": icon or "✅", "label": label, "desc": desc})
     if not b2_items:
         b2_items = block_b2_cfg.get("items", [])
     block_b2 = {
@@ -2723,6 +2744,15 @@ def _assemble_all_blocks(product_type, mapped_fields, images, cfg):
         if _v:
             block_f[_f] = _v
     block_f["product_image"] = product_image
+    # vs_rows 多维度对比
+    _vs_rows_json = field("f_vs_rows_json", "")
+    if _vs_rows_json:
+        try:
+            _vs_rows = json.loads(_vs_rows_json)
+            if isinstance(_vs_rows, list) and _vs_rows:
+                block_f["vs_rows"] = _vs_rows
+        except (json.JSONDecodeError, ValueError):
+            pass
 
     fixed_selling_images = [
         f"/static/{product_type}/{fname}"
@@ -3021,8 +3051,9 @@ def build_submit_generic(product_type):
     for i in range(1, 10):
         label = form_text(f"b2_label_{i}", "")
         icon = form_text(f"b2_icon_{i}", "")
+        desc = form_text(f"b2_desc_{i}", "")
         if label:
-            b2_items.append({"icon_image": "", "icon_text": icon or "✅", "label": label})
+            b2_items.append({"icon_image": "", "icon_text": icon or "✅", "label": label, "desc": desc})
     # 兜底：没有表单数据时用配置默认
     if not b2_items:
         b2_items = block_b2_cfg.get("items", [])
@@ -3063,6 +3094,15 @@ def build_submit_generic(product_type):
         if _v:
             block_f[_field] = _v
     block_f["product_image"] = product_image
+    # vs_rows 多维度对比
+    _vs_rows_json = form_text("f_vs_rows_json", "")
+    if _vs_rows_json:
+        try:
+            _vs_rows = json.loads(_vs_rows_json)
+            if isinstance(_vs_rows, list) and _vs_rows:
+                block_f["vs_rows"] = _vs_rows
+        except (json.JSONDecodeError, ValueError):
+            pass
 
     # ── 固定卖点图 ──
     fixed_selling_images = [

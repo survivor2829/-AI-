@@ -59,6 +59,11 @@
         <div style="margin-top:14px; font-size:21px; font-weight:600; color:#fff; line-height:1.5; text-shadow:0 1px 4px rgba(0,0,0,0.15);">
           {{ item.label | replace('\n', '<br>') | safe }}
         </div>
+        {% if item.desc %}
+        <div style="margin-top:6px; font-size:15px; font-weight:400; color:rgba(255,255,255,0.78); line-height:1.45; text-shadow:0 1px 3px rgba(0,0,0,0.1);">
+          {{ item.desc }}
+        </div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>

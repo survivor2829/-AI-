@@ -1,6 +1,6 @@
 <!--
   Block F — 产品展示+VS屏（product_showcase_vs）
-  用途：场景背景 + 产品人物图 + 底部VS对比条
+  用途：场景背景 + 产品人物图 + 底部VS对比条 + 多维度对比行
   宽度：750px
 
   需要传入的变量：
@@ -13,6 +13,7 @@
   - product_image: 产品+人物合照路径（PNG）
   - vs_left_title, vs_left_sub, vs_right_title, vs_right_sub
   - vs_left_bottom, vs_right_bottom
+  - vs_rows: 多维度对比行列表 [{"label":"维度","left":"机器数据","right":"人工数据"},...]
 -->
 {% if vs_left_title or title_line1_red %}<div style="width:750px; font-family:'PingFang SC','Noto Sans SC','Microsoft YaHei','Helvetica Neue',sans-serif; background:#fff; overflow:hidden;">
 
@@ -66,6 +67,28 @@
             <div style="font-size:18px; font-weight:500; color:#aaa; margin-top:5px;">{{ vs_right_sub }}</div>
           </div>
         </div>
+
+        <!-- VS中间：多维度对比行 -->
+        {% if vs_rows %}
+        <div style="border-top:1px solid rgba(0,0,0,0.06);">
+          {% for row in vs_rows %}
+          <div style="display:flex; align-items:stretch; {% if not loop.last %}border-bottom:1px solid rgba(0,0,0,0.05);{% endif %}">
+            <!-- 左侧数据（产品优势） -->
+            <div style="flex:1; padding:14px 18px; text-align:center;">
+              <div style="font-size:20px; font-weight:700; color:var(--theme-primary, #E8231A); line-height:1.4;">{{ row.left }}</div>
+            </div>
+            <!-- 中间维度标签 -->
+            <div style="width:108px; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.03);">
+              <span style="font-size:16px; font-weight:600; color:#666; letter-spacing:0.5px;">{{ row.label }}</span>
+            </div>
+            <!-- 右侧数据（人工劣势） -->
+            <div style="flex:1; padding:14px 18px; text-align:center;">
+              <div style="font-size:20px; font-weight:500; color:#999; line-height:1.4;">{{ row.right }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
 
         <!-- VS下半：结论条 -->
         <div style="display:flex;">
