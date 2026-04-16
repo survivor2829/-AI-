@@ -618,7 +618,6 @@ def _map_parsed_to_form_fields(parsed: dict) -> dict:
             result["f_vs_right_sub"] = _to_str(vs.get("right_sub", ""))
             result["f_vs_left_bottom"] = left_bottom
             result["f_vs_right_bottom"] = _to_str(vs.get("right_bottom", ""))
-            # vs_rows: 多维度对比行
             vs_rows = vs.get("vs_rows", [])
             if isinstance(vs_rows, list) and vs_rows:
                 result["f_vs_rows_json"] = json.dumps(vs_rows, ensure_ascii=False)
@@ -2744,7 +2743,6 @@ def _assemble_all_blocks(product_type, mapped_fields, images, cfg):
         if _v:
             block_f[_f] = _v
     block_f["product_image"] = product_image
-    # vs_rows 多维度对比
     _vs_rows_json = field("f_vs_rows_json", "")
     if _vs_rows_json:
         try:
@@ -3094,7 +3092,6 @@ def build_submit_generic(product_type):
         if _v:
             block_f[_field] = _v
     block_f["product_image"] = product_image
-    # vs_rows 多维度对比
     _vs_rows_json = form_text("f_vs_rows_json", "")
     if _vs_rows_json:
         try:
