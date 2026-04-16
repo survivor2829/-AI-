@@ -171,6 +171,12 @@ def _first_nonempty(*values):
     return ""
 
 
+def _safe_download_name(name: str, default: str = "product") -> str:
+    """剥离文件系统非法字符 (\\ / : * ? " < > |) + 首尾空格/点,保留中文与字母数字"""
+    cleaned = re.sub(r'[\\/:*?"<>|]', '', (name or '').strip()).strip('. ')
+    return cleaned or default
+
+
 # ── 极限词过滤（电商合规）────────────────────────────────────────────
 
 _EXTREME_WORD_MAP = {
@@ -3496,7 +3502,7 @@ def export_main_images_zip(product_type):
     return send_file(
         zip_buffer, mimetype="application/zip",
         as_attachment=True,
-        download_name=f"{product_type}_{model_name}_模块主图.zip"
+        download_name=f"{_safe_download_name(model_name, product_type)}.zip"
     )
 
 
@@ -3572,10 +3578,12 @@ def export_generic(product_type):
     from datetime import datetime
     model_name = data.get("block_a", {}).get("model_name", product_type)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_filename = f"{product_type}_{model_name}_{timestamp}.png"
+    # 服务端文件名含时间戳避免同型号重复导出覆盖;下载文件名只给用户看产品名
+    server_filename = f"{product_type}_{model_name}_{timestamp}.png"
+    download_filename = f"{_safe_download_name(model_name, product_type)}.png"
     _user_outputs = STATIC_OUTPUTS / str(current_user.id)
     _user_outputs.mkdir(parents=True, exist_ok=True)
-    out_path = _user_outputs / out_filename
+    out_path = _user_outputs / server_filename
 
     try:
         from playwright.sync_api import sync_playwright
@@ -3608,7 +3616,7 @@ def export_generic(product_type):
     db.session.commit()
 
     return send_file(str(out_path), mimetype="image/png",
-                     as_attachment=True, download_name=out_filename)
+                     as_attachment=True, download_name=download_filename)
 
 
 # ── 设备类静态预览（调试用）──────────────────────────────────────────

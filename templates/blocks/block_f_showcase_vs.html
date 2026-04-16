@@ -31,24 +31,26 @@
     </div>
   </div>
 
-  <!-- 场景区：背景图 + 产品人物 + VS叠加 -->
-  <div style="width:750px; height:760px; position:relative; overflow:hidden; background:#1a1e28;">
+  <!-- 场景区：背景图 + 产品人物（VS条已移到下方 sibling，避免遮挡产品图下半部）-->
+  <div style="width:750px; height:680px; position:relative; overflow:hidden; background:#1a1e28;">
 
     <!-- 场景背景图 -->
     {% if bg_image %}
     <img src="{{ bg_image }}" style="width:100%; height:100%; object-fit:cover; position:absolute; top:0; left:0;" alt="">
-    <!-- 场景图底部渐变遮罩，让VS条过渡更自然 -->
-    <div style="position:absolute; bottom:0; left:0; right:0; height:300px; background:linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 100%); pointer-events:none;"></div>
+    <!-- 底部柔和渐变，给 VS 条一个自然过渡 -->
+    <div style="position:absolute; bottom:0; left:0; right:0; height:160px; background:linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.35) 100%); pointer-events:none;"></div>
     {% endif %}
 
-    <!-- 产品+人物图 -->
-    <div style="position:absolute; top:20px; left:50%; transform:translateX(-50%); width:640px; height:520px; z-index:1; display:flex; align-items:center; justify-content:center;">
-      <img src="{{ product_image }}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 8px 24px rgba(0,0,0,0.25));" alt="">
+    <!-- 产品+人物图（占满场景可视区，不再被 VS 条遮挡）-->
+    <div style="position:absolute; top:30px; left:50%; transform:translateX(-50%); width:680px; height:620px; z-index:1; display:flex; align-items:center; justify-content:center;">
+      <img src="{{ product_image }}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 10px 30px rgba(0,0,0,0.3));" alt="">
     </div>
 
-    <!-- VS对比条：叠加在场景底部 -->
-    <div style="position:absolute; bottom:0; left:0; right:0; z-index:2;">
-      <div style="background:rgba(255,255,255,0.97); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); overflow:hidden; box-shadow:0 -4px 20px rgba(0,0,0,0.1);">
+  </div>
+
+  <!-- VS 对比条（独立区块，natural height，不会遮挡产品图）-->
+  <div style="width:750px;">
+    <div style="background:#fff; overflow:hidden; box-shadow:0 -6px 24px rgba(0,0,0,0.08);">
 
         <!-- VS上半：左右对比标题 -->
         <div style="display:flex; align-items:stretch;">
@@ -102,9 +104,7 @@
           </div>
         </div>
 
-      </div>
     </div>
-
   </div>
 
 </div>{% endif %}
