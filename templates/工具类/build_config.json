@@ -7,12 +7,12 @@
   "spec_block_template": "blocks/block_e_glass_dimension.html",
   "default_cover_image": "",
   "hero_cover_defaults": {
-    "category_line": "专业清洁工具",
-    "main_title": "清洁工具",
-    "hero_subtitle_pre": "专业品质 ",
-    "hero_subtitle_em": "耐用",
-    "hero_subtitle_post": " 高效清洁",
-    "footer_note": "*产品外观及颜色以实物为准，图片仅供参考。",
+    "category_line": "",
+    "main_title": "",
+    "hero_subtitle_pre": "",
+    "hero_subtitle_em": "",
+    "hero_subtitle_post": "",
+    "footer_note": "*产品不定期升级，外观及颜色可能有部分差异，以实际发货为准。",
     "bg_focal": "center center"
   },
   "generic_enabled_screens": [1, 2, 5, 10],
@@ -40,16 +40,11 @@
   },
   "blocks_hardcoded": {
     "block_b2": {
-      "title_num": "4",
+      "title_num": "",
       "title_text": "大产品优势",
-      "subtitle": "专业清洁工具",
+      "subtitle": "",
       "grid_columns": 2,
-      "items": [
-        {"icon_image": "", "icon_text": "🔩", "label": "坚固耐用"},
-        {"icon_image": "", "icon_text": "🧹", "label": "高效清洁"},
-        {"icon_image": "", "icon_text": "🪶", "label": "轻便易用"},
-        {"icon_image": "", "icon_text": "♻️", "label": "经久耐洗"}
-      ]
+      "items": []
     },
     "block_b3": {
       "header_line1": "",

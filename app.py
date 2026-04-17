@@ -13,9 +13,11 @@ import uuid
 import json
 import re
 import zlib
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import unquote
 from dotenv import load_dotenv
+import ai_bg_cache
 
 # 加载 .env 文件（本地开发用，生产环境靠系统环境变量）
 load_dotenv(Path(__file__).parent / ".env")
@@ -402,6 +404,15 @@ _VALUE_UNIT_TAIL_RE = re.compile(
 )
 
 
+_PLACEHOLDER_TOKENS = frozenset({'--', '-', '无', 'N/A'})
+
+
+def _is_valid_spec_value(val: str, max_len: int = 16) -> bool:
+    """hero_params / kpi 的 value 是否可用:非空、非占位符、长度合规。"""
+    v = (val or "").strip()
+    return bool(v) and v not in _PLACEHOLDER_TOKENS and len(v) <= max_len
+
+
 def _split_value_unit(val: str) -> tuple[str, str]:
     """把 '90L' / '3600㎡/h' / '≤68dB' 拆成 (数值部分, 单位)。
 
@@ -432,6 +443,70 @@ def _extract_stat_from_desc(*texts: str) -> tuple[str, str]:
         if m:
             return m.group(1), m.group(2)
     return "", ""
+
+
+def _supplement_from_specs(out: list,
+                           e_specs: list,
+                           key_priority: list,
+                           *,
+                           min_count: int,
+                           limit: int,
+                           used_norm: set,
+                           make_row) -> None:
+    """就地补齐 out 到 min_count(不越过 limit)。按 key_priority → e_specs 原序补,
+    通过 used_norm 去重。make_row(name, value) 决定附加字段结构(label/value vs icon/unit)。
+    Why: _ensure_hero_params_min2 和 _build_kpi_list Stage 2 本来是同构代码,统一到此处。
+    """
+    if len(out) >= min_count or len(out) >= limit:
+        return
+
+    specs_by_name: dict[str, str] = {}
+    for s in (e_specs or []):
+        if not isinstance(s, dict):
+            continue
+        name = (s.get("name") or "").strip()
+        value = (s.get("value") or "").strip()
+        if not name or not _is_valid_spec_value(value):
+            continue
+        specs_by_name.setdefault(name, value)
+
+    consumed: set[str] = set()
+    for k in (key_priority or []):
+        if len(out) >= min_count or len(out) >= limit:
+            break
+        if k in specs_by_name and k.strip().lower() not in used_norm:
+            out.append(make_row(k, specs_by_name[k]))
+            used_norm.add(k.strip().lower())
+            consumed.add(k)
+
+    for name, value in specs_by_name.items():
+        if len(out) >= min_count or len(out) >= limit:
+            break
+        if name in consumed or name.strip().lower() in used_norm:
+            continue
+        out.append(make_row(name, value))
+        used_norm.add(name.strip().lower())
+
+
+def _ensure_hero_params_min2(hero_params: list,
+                             e_specs: list,
+                             key_priority: list,
+                             min_count: int = 2,
+                             max_count: int = 4) -> list:
+    """若 hero_params 不足 min_count 项,从 e_specs 按优先级补齐,直到 min_count。
+    specs 枯竭时保持原样,不硬编造(feedback_no_hardcoded_data)。
+    """
+    if len(hero_params) >= min_count:
+        return hero_params[:max_count]
+
+    out = list(hero_params)
+    used = {(p.get("label") or "").strip().lower() for p in out if p.get("label")}
+    _supplement_from_specs(
+        out, e_specs, key_priority,
+        min_count=min_count, limit=max_count, used_norm=used,
+        make_row=lambda name, value: {"label": name, "value": value},
+    )
+    return out[:max_count]
 
 
 def _build_spec_rows(detail_params: dict) -> list:
@@ -538,19 +613,50 @@ def _map_parsed_to_form_fields(parsed: dict) -> dict:
         dim_height = dim_height or h
 
     _pn = _to_str(parsed.get("product_name", ""))
+    # main_title(首图中间大字)必须是"提炼的卖点短语",不能退化成产品名/型号 —
+    # 否则就和下方"产品名+型号"小字重复。兜底链顺序:
+    #   AI main_title → slogan 首段(以 · 或 | 拆) → advantages[0].text → sub_slogan → 产品名/品牌
+    # 前四条都来自产品文案,最后两条才是"实在没话可说"的保底。
+    _slogan_head = ""
+    _slogan_raw = _to_str(parsed.get("slogan", ""))
+    if _slogan_raw:
+        for _sep in ("·", "|", " - ", "—", " "):
+            if _sep in _slogan_raw:
+                _slogan_head = _slogan_raw.split(_sep)[0].strip()
+                if _slogan_head:
+                    break
+        if not _slogan_head:
+            _slogan_head = _slogan_raw.strip()
+    _first_adv = ""
+    _advs_raw = parsed.get("advantages") or []
+    if _advs_raw and isinstance(_advs_raw[0], dict):
+        _first_adv = _to_str(_advs_raw[0].get("text", "")) or _to_str(_advs_raw[0].get("title", ""))
     _main = _first_nonempty(
         _to_str(parsed.get("main_title", "")),
+        _slogan_head,
+        _first_adv,
+        _to_str(parsed.get("sub_slogan", "")),
         _pn,
         f"{brand} {model}".strip() if (brand or model) else "",
     )
-    _cat = _first_nonempty(
+    # category_line 优先承载「产品名+型号」，让首屏第一行小字显示具体产品而非抽象品类词
+    _model_str = _to_str(parsed.get("model", "")) or _to_str(parsed.get("model_name", ""))
+    if _pn:
+        _cat = _pn + ((" " + _model_str) if _model_str and _model_str not in _pn else "")
+    else:
+        _cat = _first_nonempty(
+            _to_str(parsed.get("category_line", "")),
+            _to_str(parsed.get("product_type", "")),
+        )
+    # slogan 兜底用「品类名词」而不是 _cat(现在已变成品牌+SKU),否则会拼出"高效德威莱克DZ50X"这种病句
+    _cat_noun = _first_nonempty(
         _to_str(parsed.get("category_line", "")),
         _to_str(parsed.get("product_type", "")),
     )
     _hero_sub = _to_str(parsed.get("hero_subtitle", ""))
-    # 如果 AI 没返回标语，尝试用品类补位
-    if not slogan and _cat:
-        slogan = f"高效{_cat}"
+    # 如果 AI 没返回标语，尝试用品类名词补位(如"高效驾驶式洗地机")
+    if not slogan and _cat_noun:
+        slogan = f"高效{_cat_noun}"
         tagline_line1, tagline_line2 = _split_slogan(slogan)
     # 最终兜底：确保首屏至少有产品名
     if not _main and not _cat:
@@ -580,22 +686,46 @@ def _map_parsed_to_form_fields(parsed: dict) -> dict:
     }
 
     # ── 产品优势（仅用AI返回的，不兜底推导）──
-    advantages = parsed.get("advantages", [])
-    if advantages:
-        for i, item in enumerate(advantages[:9]):
+    # 优先用 block_b2_items（工具/配耗/耗材类专用，强制 2/4/6 项、4字以内具体能力）
+    b2_items_raw = parsed.get("block_b2_items", [])
+    if isinstance(b2_items_raw, list) and b2_items_raw:
+        # 规范到 2/4/6 项: AI 违反 prompt 返回 {1,3,5} 时回退到 advantages 兜底分支,
+        # 而不是硬截断 — 否则 N=1 会生成"1 大产品优势"病文案, N=3/5 会静默丢一条优势。
+        _n = len(b2_items_raw)
+        if _n >= 6:
+            b2_items_raw = b2_items_raw[:6]
+        elif _n >= 4:
+            b2_items_raw = b2_items_raw[:4]
+        elif _n == 2:
+            b2_items_raw = b2_items_raw[:2]
+        else:
+            b2_items_raw = []  # 违规 → 走 else 分支(advantages 兜底)
+    if isinstance(b2_items_raw, list) and b2_items_raw:
+        for i, item in enumerate(b2_items_raw):
             if isinstance(item, dict):
-                result[f"b2_icon_{i+1}"] = _to_str(item.get("emoji", "✅"))
-                result[f"b2_label_{i+1}"] = _to_str(item.get("text", ""))
+                result[f"b2_icon_{i+1}"] = _to_str(item.get("icon_text", "")) or _to_str(item.get("emoji", "✅"))
+                result[f"b2_label_{i+1}"] = _to_str(item.get("label", "")) or _to_str(item.get("text", ""))
                 result[f"b2_desc_{i+1}"] = _to_str(item.get("desc", ""))
-            elif isinstance(item, str):
-                result[f"b2_icon_{i+1}"] = "✅"
-                result[f"b2_label_{i+1}"] = item
-                result[f"b2_desc_{i+1}"] = ""
-        n = len(advantages[:9])
-        result["b2_title_num"] = str(n)
-        result["b2_title_text"] = "大核心优势"
+        result["b2_title_num"] = str(len(b2_items_raw))
+        result["b2_title_text"] = "大产品优势"
         result["b2_subtitle"] = ""
-    # 如果AI没返回advantages，不设置b2字段，模块将不显示
+    else:
+        advantages = parsed.get("advantages", [])
+        if advantages:
+            for i, item in enumerate(advantages[:9]):
+                if isinstance(item, dict):
+                    result[f"b2_icon_{i+1}"] = _to_str(item.get("emoji", "✅"))
+                    result[f"b2_label_{i+1}"] = _to_str(item.get("text", ""))
+                    result[f"b2_desc_{i+1}"] = _to_str(item.get("desc", ""))
+                elif isinstance(item, str):
+                    result[f"b2_icon_{i+1}"] = "✅"
+                    result[f"b2_label_{i+1}"] = item
+                    result[f"b2_desc_{i+1}"] = ""
+            n = len(advantages[:9])
+            result["b2_title_num"] = str(n)
+            result["b2_title_text"] = "大核心优势"
+            result["b2_subtitle"] = ""
+        # 如果AI没返回advantages，不设置b2字段，模块将不显示
 
     # ── 清洁故事文案（AI生成）──
     result["b3_header_line1"] = _to_str(parsed.get("story_title_1", ""))
@@ -605,28 +735,56 @@ def _map_parsed_to_form_fields(parsed: dict) -> dict:
     result["b3_footer_line1"] = _to_str(parsed.get("story_bottom_1", ""))
     result["b3_footer_line2"] = _to_str(parsed.get("story_bottom_2", ""))
 
-    # ── VS对比文案（仅当AI有实际数据时才填充）──
+    # ── VS对比文案（新 schema: product_*/labor_*）──
+    # 注意: block_f 预览模板左列=人工 / 右列=本产品,与 ai_compose/vs.html 语义一致
     vs = parsed.get("vs_comparison", {})
     if isinstance(vs, dict) and vs:
-        count_num = _to_str(vs.get("replace_count", ""))
-        left_title = _to_str(vs.get("left_title", ""))
-        left_bottom = _to_str(vs.get("left_bottom", ""))
-        # 只有AI返回了实质数据才生成VS模块
-        if count_num or left_title or left_bottom:
-            result["f_title_line1"] = "1台顶" if count_num else ""
-            result["f_title_line1_red"] = count_num
-            result["f_title_line1_end"] = "人" if count_num else ""
-            result["f_title_line2"] = left_title + "与人工" if left_title else ""
-            result["f_title_line2_red"] = "的区别。" if left_title else ""
-            result["f_vs_left_title"] = left_title
-            result["f_vs_left_sub"] = _to_str(vs.get("left_sub", ""))
-            result["f_vs_right_title"] = _to_str(vs.get("right_title", "")) or ("传统人工" if left_title else "")
-            result["f_vs_right_sub"] = _to_str(vs.get("right_sub", ""))
-            result["f_vs_left_bottom"] = left_bottom
-            result["f_vs_right_bottom"] = _to_str(vs.get("right_bottom", ""))
-            vs_rows = vs.get("vs_rows", [])
-            if isinstance(vs_rows, list) and vs_rows:
-                result["f_vs_rows_json"] = json.dumps(vs_rows, ensure_ascii=False)
+        product_label = _to_str(vs.get("product_label", ""))
+        labor_label = _to_str(vs.get("labor_label", ""))
+        _tl1 = _to_str(vs.get("title_line1", ""))
+        # 有两方标签任一 或 有主标 → 才填,避免空屏
+        if product_label or labor_label or _tl1:
+            _tl1_red = _to_str(vs.get("title_line1_red", ""))
+            _tl1_end = _to_str(vs.get("title_line1_end", ""))
+            _tl2 = _to_str(vs.get("title_line2", ""))
+            _tl2_red = _to_str(vs.get("title_line2_red", ""))
+            result["f_title_line1"] = _tl1
+            result["f_title_line1_red"] = _tl1_red
+            result["f_title_line1_end"] = _tl1_end
+            result["f_title_line2"] = _tl2
+            result["f_title_line2_red"] = _tl2_red
+            # 左列=人工 / 右列=本产品(与 ai_compose/vs.html 一致)
+            result["f_vs_left_title"] = labor_label
+            result["f_vs_left_sub"] = _to_str(vs.get("labor_sublabel", ""))
+            result["f_vs_right_title"] = product_label
+            result["f_vs_right_sub"] = _to_str(vs.get("product_sublabel", ""))
+            # 底部结论条: 新 schema 无 left_bottom/right_bottom,置空让模板兜底
+            result["f_vs_left_bottom"] = ""
+            result["f_vs_right_bottom"] = ""
+            # block_f_showcase_vs.html 模板期望 {label, left, right} 格式,
+            # 将新 schema 的 vs_rows ({label, product_value, labor_value, ...}) 转换:
+            #   left  = 人工数据 + 说明
+            #   right = 本产品数据 + 说明
+            vs_rows_raw = vs.get("vs_rows", [])
+            if isinstance(vs_rows_raw, list) and vs_rows_raw:
+                _converted = []
+                for _r in vs_rows_raw:
+                    if not isinstance(_r, dict):
+                        continue
+                    _lbl = _to_str(_r.get("label", ""))
+                    _pv = _to_str(_r.get("product_value", ""))
+                    _lv = _to_str(_r.get("labor_value", ""))
+                    if not (_lbl and _pv and _lv):
+                        continue
+                    _pd = _to_str(_r.get("product_desc", ""))
+                    _ld = _to_str(_r.get("labor_desc", ""))
+                    _converted.append({
+                        "label": _lbl,
+                        "left": (_lv + (" " + _ld if _ld else "")),   # 左列=人工
+                        "right": (_pv + (" " + _pd if _pd else "")),  # 右列=本产品
+                    })
+                if _converted:
+                    result["f_vs_rows_json"] = json.dumps(_converted, ensure_ascii=False)
 
     # ── 适用地面材质（AI生成）──
     floor_items = parsed.get("floor_items", [])
@@ -829,6 +987,19 @@ def get_themes():
     return jsonify(data)
 
 
+@app.route('/api/style-packs', methods=['GET'])
+@login_required
+def get_style_packs():
+    """返回 AI 精修版可选的风格包列表(正交于 theme_id 色板)。
+
+    每个风格包 = {screen_type: variant_name} 映射,决定 hero/scene/vs 等屏
+    的场景/构图/灯光类型。配合 theme_id 色板,产生 6×N 种视觉组合。
+    前端用于渲染「AI 风格」卡片选择器 + 盲盒随机按钮。
+    """
+    import prompt_templates
+    return jsonify({"packs": prompt_templates.list_style_packs()})
+
+
 @app.route("/")
 @login_required
 def index():
@@ -902,7 +1073,11 @@ _NO_FABRICATION_RULE = (
     "   用户给了多少参数就提取多少，不要截断、不要省略、不要合并。\n"
     "4. floor_items（适用地面）：只根据产品实际用途判断，如果无法确定就返回空数组。\n"
     "5. vs_comparison 中的数字（替代人数、节省金额）必须有文案依据，没有依据就留空。\n"
-    "   vs_rows 中的 left 值必须引用文案中的真实参数数据（如效率、宽度、容量），不能笼统写'高效'。\n"
+    "   vs_rows 数组 3-5 项。每项 left（本产品）必须引用文案里的具体数字/规格\n"
+    "   （如 清洗宽度 620mm / 工作效率 3600㎡/h / 续航 8h / 清水箱 60L），\n"
+    "   不允许写 高效/稳定/先进 等形容词。对应的 right（人工/传统）必须是合理的具体对照数据\n"
+    "   （如 手工拖把宽 40cm / 人工 300㎡/h / 保洁员连续工作 4h 需休息 / 桶装 10L 每 30 分钟更换）。\n"
+    "   每对 left/right 必须是同一维度、可直接量化比较的。label 是维度名（如 清洁效率/续航/覆盖面积），不超过 4 字。\n"
     "6. story_title/story_desc：必须用文案中的真实参数数据，不能编造数字。\n"
     "7. 售后承诺、质保年限等：只有文案中明确写了才能填，没写的一律不填。\n"
     "8. 不要编造用户文案中没有提到的服务承诺（如送货上门、上门培训等）。\n\n"
@@ -936,6 +1111,7 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             '  "detail_params": {"参数名":"参数值", ...},\n'
             '  "dimensions": {"length":"mm值","width":"mm值","height":"mm值"},\n'
             '  "category_line": "产品品类短语（不超过10字）",\n'
+            '  "main_title": "一句话核心卖点（6-12字）。突出 原厂/适配/耐用 具体，如 原厂滚刷 3 倍寿命 / 适配 12 款主流机型。禁止 稳定/高效/可靠 等虚词，禁止写品牌名/口号",\n'
             '  "hero_subtitle": "副标题（适配XX系列，原厂品质，不超过15字）",\n'
             '  "slogan": "主标语（一句话概括产品最大卖点）",\n'
             '  "sub_slogan": "副标语（补充说明）",\n'
@@ -955,6 +1131,10 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             '    {"name":"主刷","qty":"1","note":""},\n'
             '    ...\n'
             '  ],\n'
+            '  "block_b2_items": [\n'
+            '    {"icon_text":"🔧","label":"适配12型"},\n'
+            '    ...\n'
+            '  ],\n'
             '  "listing_title": "电商标题（60字以内，含品牌+型号+核心卖点+品类词）",\n'
             '  "listing_keywords": "搜索关键词（10-15个，逗号分隔）",\n'
             '  "listing_selling_points": ["卖点1（15字以内）","卖点2","卖点3","卖点4","卖点5"],\n'
@@ -967,6 +1147,9 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             "- install_steps 提供清晰的安装步骤（3-6步）\n"
             "- package_items 列出包装内所有配件清单\n"
             "- advantages 6-9项，每项附带贴切的emoji，严禁编造\n"
+            "- block_b2_items: 必须是 N 项（N 等于 2、4 或 6），每项 {icon_text: emoji, label: \"4 字以内的核心能力\"}。\n"
+            "  label 必须是从文案里提炼的具体能力（如 原厂适配 / 3倍寿命 / 适配12型），不能是通用形容词（如 高效/专业）。\n"
+            "  icon_text 选 1 个与能力语义匹配的 emoji（🔩🧹🪶♻️🛡⚡🧪🌿💧💰🔧⏱✅ 等）。\n"
             "- listing_title 要包含核心搜索词，便于电商平台搜索\n"
             "- spec_callouts 从参数中提取3-6个最吸引眼球的数据，用于主图标注\n\n"
             "只返回JSON，不要其他解释文字：\n\n" + raw_text
@@ -989,6 +1172,7 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             '  "detail_params": {"参数名":"参数值", ...},\n'
             '  "dimensions": {"length":"mm值","width":"mm值","height":"mm值"},\n'
             '  "category_line": "产品品类短语（不超过10字）",\n'
+            '  "main_title": "一句话核心卖点（6-12字）。突出 浓度/成本/环保 具体数字，如 1:50 稀释 每次 0.3元 / 食品级可降解无残留。禁止 稳定/高效/可靠 等虚词，禁止写品牌名/口号",\n'
             '  "hero_subtitle": "副标题（不超过15字）",\n'
             '  "slogan": "主标语（突出稀释比或覆盖面积）",\n'
             '  "sub_slogan": "副标语（补充说明）",\n'
@@ -1007,6 +1191,10 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             '  "before_after": [\n'
             '    {"before_label":"使用前","after_label":"使用后","desc":"顽固油污一喷即净"}\n'
             '  ],\n'
+            '  "block_b2_items": [\n'
+            '    {"icon_text":"🧪","label":"1:50稀释"},\n'
+            '    ...\n'
+            '  ],\n'
             '  "listing_title": "电商标题（60字以内，含品牌+型号+核心卖点+品类词）",\n'
             '  "listing_keywords": "搜索关键词（10-15个，逗号分隔）",\n'
             '  "listing_selling_points": ["卖点1（15字以内）","卖点2","卖点3","卖点4","卖点5"],\n'
@@ -1020,6 +1208,9 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             "- usage_steps 提供清晰的使用步骤（3-5步）\n"
             "- before_after 描述使用前后的清洁效果对比\n"
             "- advantages 6-9项，每项附带贴切的emoji，严禁编造\n"
+            "- block_b2_items: 必须是 N 项（N 等于 2、4 或 6），每项 {icon_text: emoji, label: \"4 字以内的核心能力\"}。\n"
+            "  label 必须是从文案里提炼的具体能力（如 0磷无害 / 1:50稀释 / 食品级），不能是通用形容词（如 高效/专业）。\n"
+            "  icon_text 选 1 个与能力语义匹配的 emoji（🔩🧹🪶♻️🛡⚡🧪🌿💧💰🔧⏱✅ 等）。\n"
             "- listing_title 要包含核心搜索词，便于电商平台搜索\n"
             "- spec_callouts 从参数中提取3-6个最吸引眼球的数据，用于主图标注\n\n"
             "只返回JSON，不要其他解释文字：\n\n" + raw_text
@@ -1042,6 +1233,7 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             '  "detail_params": {"参数名":"参数值", ...},\n'
             '  "dimensions": {"length":"mm值","width":"mm值","height":"mm值"},\n'
             '  "category_line": "产品品类短语（不超过10字）",\n'
+            '  "main_title": "一句话核心卖点（6-12字）。突出 耐用/轻便/高效/适配广 四选一具体特征，如 304 不锈钢 10年耐用 / 超轻 300g 不累手。禁止 稳定/高效/可靠 等虚词，禁止写品牌名/口号",\n'
             '  "hero_subtitle": "副标题（不超过15字）",\n'
             '  "slogan": "主标语（突出材质或耐用性）",\n'
             '  "sub_slogan": "副标语（补充说明）",\n'
@@ -1060,6 +1252,10 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             '  "before_after": [\n'
             '    {"before_label":"使用前","after_label":"使用后","desc":"效果说明"}\n'
             '  ],\n'
+            '  "block_b2_items": [\n'
+            '    {"icon_text":"🔩","label":"10年耐用"},\n'
+            '    ...\n'
+            '  ],\n'
             '  "listing_title": "电商标题（60字以内，含品牌+型号+核心卖点+品类词）",\n'
             '  "listing_keywords": "搜索关键词（10-15个，逗号分隔）",\n'
             '  "listing_selling_points": ["卖点1（15字以内）","卖点2","卖点3","卖点4","卖点5"],\n'
@@ -1073,6 +1269,9 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             "- package_items 列出包装内所有配件清单\n"
             "- before_after 描述使用前后的清洁效果对比\n"
             "- advantages 6-9项，每项附带贴切的emoji，严禁编造\n"
+            "- block_b2_items: 必须是 N 项（N 等于 2、4 或 6），每项 {icon_text: emoji, label: \"4 字以内的核心能力\"}。\n"
+            "  label 必须是从文案里提炼的具体能力（如 10年耐用 / 超轻300g / 适配广），不能是通用形容词（如 高效/专业）。\n"
+            "  icon_text 选 1 个与能力语义匹配的 emoji（🔩🧹🪶♻️🛡⚡🧪🌿💧💰🔧⏱✅ 等）。\n"
             "- listing_title 要包含核心搜索词，便于电商平台搜索\n"
             "- spec_callouts 从参数中提取3-6个最吸引眼球的数据，用于主图标注\n\n"
             "只返回JSON，不要其他解释文字：\n\n" + raw_text
@@ -1098,6 +1297,7 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             '  // ⚠️ detail_params 必须提取文案中出现的【每一个】技术参数，不限数量，不能遗漏任何一个！\n'
             '  "dimensions": {"length":"mm值","width":"mm值","height":"mm值"},\n'
             '  "category_line": "产品品类短语（如 驾驶式洗地机 / 商用清洁机器人，不超过10字）",\n'
+            '  "main_title": "一句话核心卖点（6-12字）。必须是量化能力或独特差异，如 3600㎡/h 高效清洁 / 8小时连续续航 / 自动回充充水。禁止写产品名/型号/品牌名（如禁止 DZ50X / 驾驶式洗地机 这种），禁止 稳定/高效/可靠 等虚词",\n'
             '  "hero_subtitle": "首屏副标题（描述适用场景+核心能力，如 大型商场高效清洁专家，不超过15字）",\n'
             '  "floor_items": [{"icon_text":"单字","label":"地面材质名"},...] （根据产品适用场景列出4-8种适用地面材质，如大理石、环氧地坪、瓷砖、水磨石、PVC地板等，没有相关信息则返回空数组）,\n'
             '  "slogan": "主标语（一句话概括产品最大卖点，用真实数据）",\n'
@@ -1114,20 +1314,37 @@ def _build_category_prompt(product_type: str, raw_text: str) -> str:
             '  "story_bottom_1": "底部卖点1（最亮眼的数字宣称，如 14600m²/h超大清扫效率，没有突出数据就留空字符串）",\n'
             '  "story_bottom_2": "底部卖点2（效果短句，如 大场所清扫首选）",\n'
             '  "vs_comparison": {\n'
-            '    "replace_count": "只填数字，如 8-10 或 3-5（根据效率参数估算可替代人数，没依据填 多）",\n'
-            '    "annual_saving": "只填金额，如 26W+ 或 15W+（估算年省人力成本，没依据留空）",\n'
-            '    "left_title": "产品类型简称，不超过8字（如 智能洗扫机器人）",\n'
-            '    "left_sub": "基于产品参数总结的机械核心优势，6-10字",\n'
-            '    "right_sub": "对应的人工劣势，6-10字",\n'
-            '    "left_bottom": "机械结论，引用文案中的关键数据，两行用<br>隔开",\n'
-            '    "right_bottom": "人工结论，对比说明劣势，两行用<br>隔开",\n'
+            '    // ⚠️ 语义固定:「本产品 vs 人工」二分对比。product_* = 本产品(右侧红字/赢家),labor_* = 人工(左侧灰色)。\n'
+            '    //    不要把产品类型词(如 "智能洗扫机器人") 和 "本产品" 这类词同时用,它们是同一方,会造成滑稽重复。\n'
+            '    //    如果文案完全没有可量化对比数据,把整个 vs_comparison 留空 {} ,不要硬造。\n'
+            '    "title_line1": "主标前缀短语,如 1台顶",\n'
+            '    "title_line1_red": "主标数字突出(品牌红色),如 8-10(来自文案估算,无依据留空)",\n'
+            '    "title_line1_end": "主标后缀,如 人(无则空串)",\n'
+            '    "title_line2": "副标前半,如 机洗与人工",\n'
+            '    "title_line2_red": "副标红字部分,如 的区别",\n'
+            '    "product_label": "本产品短称,≤6字(如 智能机洗 / 驾驶机洗)。禁止写具体型号/品牌",\n'
+            '    "product_sublabel": "本产品优势总结,6-10字(如 高效省心 / 一键智能)",\n'
+            '    "product_icon": "单个 emoji,语义匹配产品(如 🤖 / ⚡ / 🧹)",\n'
+            '    "labor_label": "对比方短称,固定用 人工 或 传统人力",\n'
+            '    "labor_sublabel": "人工劣势总结,6-10字(如 疲劳效率低 / 人力成本高)",\n'
+            '    "labor_icon": "单个 emoji,固定 👷 或 👤",\n'
             '    "vs_rows": [\n'
-            '      {"label":"对比维度（如 清洁效率）","left":"机器数据（如 3600㎡/h）","right":"人工数据（如 300㎡/h）"},\n'
-            '      {"label":"工作时长","left":"连续工作4-6小时","right":"需轮班休息"},\n'
-            '      {"label":"清洁质量","left":"标准化洁净度","right":"因人而异"},\n'
-            '      ...\n'
+            '      {"label":"效率","product_value":"3600㎡/h","product_desc":"驾驶式机洗","labor_value":"300㎡/h","labor_desc":"人工手推"},\n'
+            '      {"label":"续航","product_value":"8h 连续","product_desc":"锂电长续航","labor_value":"4h 需休息","labor_desc":"人工体力限制"},\n'
+            '      {"label":"水箱","product_value":"60L","product_desc":"一箱作业 2h","labor_value":"10L","labor_desc":"30 分钟换水"}\n'
+            '    ],\n'
+            '    // ⚠️ vs_rows 3-5 项。每项 label 是维度名 ≤4 字(如 效率/续航/水箱)。\n'
+            '    //    product_value 必须引用文案里的具体数字/规格(如 3600㎡/h、620mm、8h、60L);\n'
+            '    //    labor_value 必须是同一维度下的人工对照数据(如 300㎡/h / 40cm / 4h / 10L)。\n'
+            '    //    product_desc / labor_desc 是可选短说明 ≤8 字(如 "锂电长续航" / "30 分钟换水")。\n'
+            '    //    禁止 高效/稳定/先进 等形容词,禁止单方填数字而另一方填虚词。\n'
+            '    "summary_points": [\n'
+            '      {"num":"12x","label":"效率倍数"},\n'
+            '      {"num":"省 26W+","label":"年省成本"},\n'
+            '      {"num":"1 顶 8","label":"人力替代"}\n'
             '    ]\n'
-            '    // vs_rows: 从产品文案参数中提炼3-5个具体对比维度，left必须引用真实参数数据，right用合理的人工对照\n'
+            '    // summary_points 2-3 项,VS 屏底部红色方块内容。num 是最亮眼的短数字/倍数(≤6字),label 是它的含义(≤5字)。\n'
+            '    // 必须是文案里能推得出的结论,没有就返回 [](不要硬造"1顶多"这种)。\n'
             '  },\n'
             '  "tech_items": [\n'
             '    {"title":"技术/部件名称（如 感应电机）","desc":"一句话技术说明（如 高效稳定，适配长时间作业）"}\n'
@@ -1264,12 +1481,15 @@ def _call_deepseek_parse(raw_text: str, product_type: str = "设备类", api_key
                 _adv["text"] = _strip_extreme_words(_to_str(_adv["text"]))
             if "desc" in _adv:
                 _adv["desc"] = _strip_extreme_words(_to_str(_adv["desc"]))
-    # VS对比字段极限词过滤
+    # VS对比字段极限词过滤 — 新 schema 字段名(product_*/labor_*)
     vs = parsed.get("vs_comparison", {})
     if isinstance(vs, dict):
-        _strip_extreme_in_list(vs.get("vs_rows", []), ["left", "right"])
-        for _vf in ["replace_count", "annual_saving", "left_title", "left_sub",
-                     "right_sub", "left_bottom", "right_bottom"]:
+        _strip_extreme_in_list(vs.get("vs_rows", []),
+                                ["product_value", "product_desc", "labor_value", "labor_desc"])
+        for _vf in ["product_label", "product_sublabel",
+                     "labor_label", "labor_sublabel",
+                     "title_line1", "title_line1_red", "title_line1_end",
+                     "title_line2", "title_line2_red"]:
             if _vf in vs:
                 vs[_vf] = _strip_extreme_words(_to_str(vs[_vf]))
 
@@ -1718,17 +1938,42 @@ _SECTION_LABELS = {
 }
 
 
+@lru_cache(maxsize=1)
+def _ai_kpi_priority() -> tuple:
+    """返回 build_config.json 里 ai_detail_key_priority 的只读副本(tuple)。
+    v2 ai_compose 管线与 legacy preview 共用同一份优先级,单一真相源。
+    """
+    cfg = _load_build_config("设备类") or {}
+    return tuple(cfg.get("ai_detail_key_priority") or ())
+
+
 def _build_kpi_list(mapped: dict, *, limit: int = 4,
-                    split_unit: bool = False) -> list[dict]:
+                    split_unit: bool = False,
+                    e_specs: list | None = None,
+                    key_priority: list | None = None,
+                    min_count: int = 0,
+                    exclude_labels: set | None = None) -> list[dict]:
     """遍历 param_1..param_4,返回 [{value[, unit], label}, ...]。
     Why: hero(4 项 无单位)和 effect(3 项 拆单位)两处曾各自手写同一循环,抽出统一。
     split_unit=True 时把 value 里内嵌的 "90L"/"3600㎡/h" 等单位拆到独立字段,供模板右上角小字展示。
+
+    新增 kwargs(均向后兼容,不传时行为不变):
+    - e_specs / key_priority: param_1..4 不足时从规格表按优先级补齐
+    - min_count: 期望最少项数;达到 min_count 就停补(不补到 limit,避免"1→4"视觉突变)
+    - exclude_labels: 已被其它屏用过的 label 集合,跳过以避免跨屏重复
     """
+    def _norm(s: str) -> str:
+        return (s or "").strip().lower()
+    exclude_norm = {_norm(l) for l in (exclude_labels or []) if _norm(l)}
+
     out: list[dict] = []
+    used_norm: set[str] = set()
     for i in (1, 2, 3, 4):
         v = (mapped.get(f"param_{i}_value") or "").strip()
         l = (mapped.get(f"param_{i}_label") or "").strip()
         if not (v and l):
+            continue
+        if _norm(l) in exclude_norm:
             continue
         if split_unit:
             num_part, unit = _split_value_unit(v)
@@ -1736,9 +1981,27 @@ def _build_kpi_list(mapped: dict, *, limit: int = 4,
                         "unit": unit, "label": l})
         else:
             out.append({"value": v, "label": l})
+        used_norm.add(_norm(l))
         if len(out) >= limit:
             break
-    return out
+
+    # Stage 2: 从 e_specs 按优先级补齐到 min_count(上限仍然是 limit)
+    if min_count and len(out) < min_count:
+        def _make_kpi_row(name: str, value: str) -> dict:
+            if split_unit:
+                num_part, unit = _split_value_unit(value)
+                return {"icon": "", "value": num_part or value,
+                        "unit": unit, "label": name}
+            return {"value": value, "label": name}
+
+        used_norm |= exclude_norm
+        _supplement_from_specs(
+            out, e_specs, key_priority,
+            min_count=min_count, limit=limit,
+            used_norm=used_norm, make_row=_make_kpi_row,
+        )
+
+    return out[:limit]
 
 
 def _pick_canvas_height(n: int, breakpoints: list[tuple[int, int]]) -> int:
@@ -1749,26 +2012,6 @@ def _pick_canvas_height(n: int, breakpoints: list[tuple[int, int]]) -> int:
         if n <= threshold:
             return h
     return breakpoints[-1][1]
-
-
-def _vs_row(label: str, left_value: str, left_desc: str,
-            right_value: str, right_desc: str) -> dict:
-    return {
-        "label": label,
-        "left_value": left_value, "left_desc": left_desc,
-        "right_value": right_value, "right_desc": right_desc,
-    }
-
-
-def _derive_vs_rows_from_scalars(vs_raw: dict) -> list[dict]:
-    rows = []
-    rc = _to_str(vs_raw.get("replace_count", ""))
-    if rc:
-        rows.append(_vs_row("人力替代", "1 台", "智能机器人", f"{rc} 人", "传统人工"))
-    asv = _to_str(vs_raw.get("annual_saving", ""))
-    if asv:
-        rows.append(_vs_row("年成本", f"省 {asv}", "一次性投入", "持续支出", "人力 + 耗材"))
-    return rows
 
 
 def _build_ctxs_from_parsed(parsed: dict,
@@ -1827,7 +2070,11 @@ def _build_ctxs_from_parsed(parsed: dict,
     main_title     = mapped.get("main_title") or _to_str(parsed.get("main_title", ""))
     brand_name     = _to_str(parsed.get("brand", ""))
     model          = _to_str(parsed.get("model", "")) or _to_str(parsed.get("product_name", ""))
-    category_line  = _to_str(parsed.get("category_line", "")) or _to_str(parsed.get("product_type", ""))
+    # category_line 优先用 mapped 里 _map_parsed_to_form_fields 组装的「产品名+型号」格式,
+    # raw parsed.category_line 只作兜底 —— 否则首图小字会退化成光秃秃的品类词(如 "驾驶式洗地机")
+    category_line  = (mapped.get("category_line")
+                      or _to_str(parsed.get("category_line", ""))
+                      or _to_str(parsed.get("product_type", "")))
     sub_slogan     = _to_str(parsed.get("sub_slogan", ""))
     hero_subtitle  = _to_str(parsed.get("hero_subtitle", ""))
 
@@ -1848,15 +2095,22 @@ def _build_ctxs_from_parsed(parsed: dict,
         hero: dict = {**theme, "main_title": main_title}
         # product_url 缺失时模板会显示占位(下面改 hero.html 加 else 分支)
         hero["product_url"] = product_url  # 空串也显式传,让模板走 else 分支
-        sub_parts = [category_line, hero_subtitle]
-        subtitle = " · ".join(p for p in sub_parts if p)
-        if subtitle:
-            hero["subtitle"] = subtitle
+        # 小字只放"产品名 + 型号"(category_line 已在 _map_parsed_to_form_fields 组装),
+        # 不再拼 hero_subtitle —— 避免和大字 main_title(卖点)形成双重副标、也避免与 taglines 重复。
+        if category_line:
+            hero["subtitle"] = category_line
         taglines = [p for p in (mapped.get("tagline_line1"),
                                 mapped.get("tagline_line2")) if p]
         if taglines:
             hero["taglines"] = taglines
-        kpi_list = _build_kpi_list(mapped, limit=4, split_unit=False)
+        kpi_list = _build_kpi_list(
+            mapped,
+            limit=4,
+            split_unit=False,
+            e_specs=mapped.get("e_specs") or [],
+            key_priority=list(_ai_kpi_priority()),
+            min_count=2,
+        )
         if kpi_list:
             hero["kpi_list"] = kpi_list
         ctxs["hero"] = _inject_bg(hero, "hero")
@@ -1956,69 +2210,70 @@ def _build_ctxs_from_parsed(parsed: dict,
     # ══════════════════════════════════════════════════════
     # VS — 补 icon/summary_points,对比屏从"三行表格"变成"视觉收束单元"
     # ══════════════════════════════════════════════════════
+    # 新 schema: product_* = 本产品(映射到模板右侧/红色赢家位)
+    #           labor_*   = 人工(映射到模板左侧/灰色对比位)
+    # AI 无可量化对比数据 → 整屏跳过(不再硬编造 "传统人工"/"智能机器人")
     vs_raw = parsed.get("vs_comparison") or {}
-    if isinstance(vs_raw, dict):
-        compare_items = vs_raw.get("compare_items") or []
-        # DeepSeek 当前 prompt 不要 compare_items,用 replace_count/annual_saving 派生避免整屏丢失
-        if not compare_items:
-            compare_items = _derive_vs_rows_from_scalars(vs_raw)
+    if isinstance(vs_raw, dict) and vs_raw:
+        product_label    = _to_str(vs_raw.get("product_label", ""))
+        labor_label      = _to_str(vs_raw.get("labor_label", ""))
+        vs_rows_raw      = vs_raw.get("vs_rows") or []
+        summary_raw      = vs_raw.get("summary_points") or []
+
         cmp_rows = []
-        for c in compare_items:
+        for c in vs_rows_raw:
             if not isinstance(c, dict):
                 continue
-            label = _to_str(c.get("label", ""))
-            if not label:
+            lbl = _to_str(c.get("label", ""))
+            pv  = _to_str(c.get("product_value", ""))
+            lv  = _to_str(c.get("labor_value", ""))
+            # 每行都必须"三有":维度+产品值+人工值,缺一个就丢弃该行
+            if not (lbl and pv and lv):
                 continue
             cmp_rows.append({
-                "label":       label,
-                "left_value":  _to_str(c.get("left_value", "")),
-                "left_desc":   _to_str(c.get("left_desc", "")),
-                "right_value": _to_str(c.get("right_value", "")),
-                "right_desc":  _to_str(c.get("right_desc", "")),
+                "label":       lbl,
+                "left_value":  lv,                                     # 左=人工
+                "left_desc":   _to_str(c.get("labor_desc", "")),
+                "right_value": pv,                                     # 右=本产品
+                "right_desc":  _to_str(c.get("product_desc", "")),
             })
-        left_label = _to_str(vs_raw.get("left_title", "")) or "传统方案"
-        right_label = _to_str(vs_raw.get("right_title", "")) or "本产品"
 
-        # 列头 icon:AI 显式给 > 默认语义图标
-        left_icon = _to_str(vs_raw.get("left_icon", "")) or "🤖"
-        right_icon = _to_str(vs_raw.get("right_icon", "")) or "👤"
-        # 列副标签:可选
-        left_sublabel = _to_str(vs_raw.get("left_sublabel", "")) or "高效智能"
-        right_sublabel = _to_str(vs_raw.get("right_sublabel", "")) or "传统方式"
-
-        # summary_points:从 replace_count + cmp_rows 前 2 项派生一条收束条
-        # 没有 compare_items 就跳过,保持"不硬编造"
         summary_points = []
-        replace_count = _to_str(vs_raw.get("replace_count", ""))
-        if replace_count:
-            summary_points.append({"num": f"1 顶 {replace_count}", "label": "人力替代"})
-        for c in cmp_rows[:2]:
-            rv = c.get("right_value", "")
-            lbl = c.get("label", "")
-            if rv and lbl and len(summary_points) < 3:
-                summary_points.append({"num": rv, "label": lbl})
+        for s in summary_raw:
+            if not isinstance(s, dict):
+                continue
+            n = _to_str(s.get("num", ""))
+            lb = _to_str(s.get("label", ""))
+            if n and lb:
+                summary_points.append({"num": n, "label": lb})
 
+        # 最小生成门槛:只要"至少一行可量化对比"即可;labels 缺失时兜底到通用分组名
+        # Why: product_label/labor_label 是"对阵分组名",不是产品数据 —— 用 "本产品"/"人工"
+        #   兜底不算硬编造(不违反 feedback_no_hardcoded_data),真正不可编造的是 vs_rows 的数字。
         if cmp_rows:
-            # Why: 2-3 行时 flex:1 会把每行拉过高;按行数给 canvas 分段高度
+            if not product_label:
+                product_label = "本产品"
+            if not labor_label:
+                labor_label = "人工"
             vs_h = _pick_canvas_height(
                 len(cmp_rows), [(2, 620), (3, 720), (4, 820), (99, 900)])
             vs_ctx: dict = {
                 **theme,
                 "section_label":  _SECTION_LABELS["vs"],
                 "title_main":     "对比优势",
-                "left_label":     left_label,
-                "right_label":    right_label,
-                "left_icon":      left_icon,
-                "right_icon":     right_icon,
-                "left_sublabel":  left_sublabel,
-                "right_sublabel": right_sublabel,
+                "left_label":     labor_label,                         # 模板左列 = 人工
+                "right_label":    product_label,                       # 模板右列 = 本产品
+                "left_icon":      _to_str(vs_raw.get("labor_icon", "")),
+                "right_icon":     _to_str(vs_raw.get("product_icon", "")),
+                "left_sublabel":  _to_str(vs_raw.get("labor_sublabel", "")),
+                "right_sublabel": _to_str(vs_raw.get("product_sublabel", "")),
                 "compare_items":  cmp_rows,
                 "canvas_height":  vs_h,
             }
             if common_subtitle:
                 vs_ctx["subtitle"] = common_subtitle
             if summary_points:
-                vs_ctx["summary_points"] = summary_points
+                vs_ctx["summary_points"] = summary_points[:3]
             ctxs["vs"] = _inject_bg(vs_ctx, "vs")
 
     # ══════════════════════════════════════════════════════
@@ -2058,7 +2313,22 @@ def _build_ctxs_from_parsed(parsed: dict,
     #      给它一个"大图 + 底部 3-4 卖点条"的独立屏,对齐 v1 block_e 的处理方式
     # ══════════════════════════════════════════════════════
     if effect_image_url:
-        effect_kpis = _build_kpi_list(mapped, limit=3, split_unit=True)
+        # 跨屏去重:effect 的 kpi 不得与 hero 的 kpi_list 重复 label。
+        # _build_ctxs_from_parsed 里 hero 段(上方)先于 effect 段执行,ctxs["hero"] 已就位。
+        hero_labels = {
+            (k.get("label") or "").strip()
+            for k in (ctxs.get("hero", {}).get("kpi_list") or [])
+            if k.get("label")
+        }
+        effect_kpis = _build_kpi_list(
+            mapped,
+            limit=3,
+            split_unit=True,
+            e_specs=mapped.get("e_specs") or [],
+            key_priority=list(_ai_kpi_priority()),
+            min_count=2,
+            exclude_labels=hero_labels,
+        )
         effect_ctx: dict = {
             **theme,
             "section_label":    _SECTION_LABELS["effect"],
@@ -2239,6 +2509,10 @@ def generate_ai_detail_html():
         effect_image  = (data.get("effect_image") or "").strip()   # 效果图 → scene 屏 bg 覆盖
         qr_image      = (data.get("qr_image") or "").strip()       # 二维码 → cta 屏右栏
         theme_id = (data.get("theme_id") or "classic-red").strip()
+        # 风格包(正交于 theme_id):theme_id 控色板,style_pack 控场景/构图/灯光
+        # random_style=True → 每次从 6 个风格包里盲盒随机一个(用户"每次都不一样"需求)
+        style_pack = (data.get("style_pack") or "").strip()
+        random_style = bool(data.get("random_style"))
 
         # 先并发生成 6 屏 AI 背景(hero/advantages/specs/vs/scene/brand)
         # AI_BG_MODE 控制模式: cache(默认 24h 复用) / realtime(每次都新)
@@ -2272,6 +2546,8 @@ def generate_ai_detail_html():
                 brand=brand, api_key=ark_key,
                 product_name=product_name,
                 reference_image_url=scene_image,
+                style_pack=style_pack,
+                random_style=random_style,
             )
         except Exception as e:
             print(f"[ai-detail-html] 背景生成全局失败,全部走 CSS 兜底: {e}")
@@ -2628,19 +2904,18 @@ def _assemble_all_blocks(product_type, mapped_fields, images, cfg):
     product_side_image = images.get("product_side_image", "")
     effect_image = images.get("effect_image", "")
 
-    # Hero params
+    # Hero params (不足 2 项 → 从 e_specs 按优先级补齐,不硬编造)
     hero_params = []
     for i in range(1, 5):
         v = field(f'param_{i}_value', '').strip()
         l = field(f'param_{i}_label', '').strip()
-        if v and v not in ('--', '-', '无', 'N/A') and len(v) <= 16:
+        if _is_valid_spec_value(v):
             hero_params.append({"value": v, "label": l})
-    if not hero_params:
-        hero_params = [
-            {"value": hp.get("default_value", ""), "label": hp.get("label", "")}
-            for hp in cfg.get("hero_params", [])
-            if hp.get("default_value", "").strip()
-        ]
+    hero_params = _ensure_hero_params_min2(
+        hero_params,
+        mapped_fields.get("e_specs", []) or [],
+        cfg.get("ai_detail_key_priority", []) or [],
+    )
 
     _hcov = cfg.get("hero_cover_defaults") or {}
     _def = cfg.get("defaults") or {}
@@ -2749,6 +3024,9 @@ def _assemble_all_blocks(product_type, mapped_fields, images, cfg):
         if _v:
             block_f[_f] = _v
     block_f["product_image"] = product_image
+    block_f["labor_image"] = ai_bg_cache.get_labor_reference_image(
+        api_key=os.environ.get("ARK_API_KEY", "")
+    )
     _vs_rows_json = field("f_vs_rows_json", "")
     if _vs_rows_json:
         try:
@@ -2978,19 +3256,32 @@ def build_submit_generic(product_type):
     logo_image         = _save_upload('logo_image')
     qr_image           = _save_upload('qr_image')                            # 微信二维码
 
-    # ── 英雄屏参数条（跳过空值、占位符、过长值）──
+    # ── 先解析 specs（原本在下方 Block E 构建时解析，提前到这里供 hero_params 补齐用）──
+    e_specs = []
+    for i in range(1, 21):
+        name = form_text(f'e_spec_name_{i}', '')
+        value = form_text(f'e_spec_value_{i}', '')
+        if name and value:
+            e_specs.append({"name": name, "value": value})
+    # 兜底：表单未填参数时，使用配置中的 default_specs
+    if not e_specs:
+        default_specs = cfg.get("default_specs", [])
+        if isinstance(default_specs, list):
+            e_specs = [{"name": s.get("name", ""), "value": s.get("value", "")}
+                       for s in default_specs if s.get("name") and s.get("value")]
+
+    # ── 英雄屏参数条（跳过空值、占位符、过长值；不足 2 项从 specs 补齐）──
     hero_params = []
     for i in range(1, 5):
         v = form_text(f'param_{i}_value', '').strip()
         l = form_text(f'param_{i}_label', '').strip()
-        if v and v not in ('--', '-', '无', 'N/A') and len(v) <= 16:
+        if _is_valid_spec_value(v):
             hero_params.append({"value": v, "label": l})
-    if not hero_params:
-        hero_params = [
-            {"value": hp.get("default_value", ""), "label": hp.get("label", "")}
-            for hp in cfg.get("hero_params", [])
-            if hp.get("default_value", "").strip()
-        ]
+    hero_params = _ensure_hero_params_min2(
+        hero_params,
+        e_specs,
+        cfg.get("ai_detail_key_priority", []) or [],
+    )
 
     # ── Block A（英雄屏）──
     _hcov = cfg.get("hero_cover_defaults") or {}
@@ -3018,19 +3309,7 @@ def build_submit_generic(product_type):
     }
 
     # ── Block E（参数表）──
-    e_specs = []
-    for i in range(1, 21):
-        name = form_text(f'e_spec_name_{i}', '')
-        value = form_text(f'e_spec_value_{i}', '')
-        if name and value:
-            e_specs.append({"name": name, "value": value})
-    # 兜底：表单未填参数时，使用配置中的 default_specs
-    if not e_specs:
-        default_specs = cfg.get("default_specs", [])
-        if isinstance(default_specs, list):
-            e_specs = [{"name": s.get("name", ""), "value": s.get("value", "")}
-                       for s in default_specs if s.get("name") and s.get("value")]
-
+    # e_specs 已在上方 hero_params 构建前解析,这里直接复用
     model_name = form_text('model_name', _def.get("model_name", ""))
     _e_red = form_text("e_red_bar_text", "").strip()
     _dims = cfg.get("default_dims", {})
@@ -3098,6 +3377,9 @@ def build_submit_generic(product_type):
         if _v:
             block_f[_field] = _v
     block_f["product_image"] = product_image
+    block_f["labor_image"] = ai_bg_cache.get_labor_reference_image(
+        api_key=os.environ.get("ARK_API_KEY", "")
+    )
     _vs_rows_json = form_text("f_vs_rows_json", "")
     if _vs_rows_json:
         try:

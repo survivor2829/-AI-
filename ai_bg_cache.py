@@ -108,16 +108,17 @@ def get_mode() -> str:
 
 
 def _cache_key(theme_id: str, screen: str, category: str,
-               product_name: str = "") -> str:
+               product_name: str = "", variant: str = "") -> str:
     """
     缓存 key 要把"能决定背景视觉差异的轴"都混入:
       theme_id   — 主题色调决定
       screen     — 屏别(hero/specs/...)决定构图
+      variant    — 风格包变体(showroom/factory/...)决定场景
       category   — 品类(驾驶式洗地机/扫地机/...)决定主体语义
       product_name — 型号(DZ50X/DZ60X/...)决定具体产品;不加 → 同品类所有型号串包
       PROMPT_VERSION — 提示词版本,改版时自动让旧缓存失效
     """
-    raw = f"{theme_id}|{screen}|{category}|{product_name}|{PROMPT_VERSION}"
+    raw = f"{theme_id}|{screen}|{variant}|{category}|{product_name}|{PROMPT_VERSION}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
 
 
@@ -141,12 +142,20 @@ def _to_static_url(path: Path) -> str:
 
 def _build_prompt(theme_id: str, screen: str, category: str,
                   prev_screen: str | None,
-                  next_screen: str | None) -> tuple[str, str]:
+                  next_screen: str | None,
+                  variant: str = "",
+                  prev_variant: str = "",
+                  next_variant: str = "") -> tuple[str, str]:
     """
     v2 实景 prompt — 走 prompt_templates 的 6 维散文 prompt + 强 negative。
 
     返回 (prompt, negative_prompt),由调用方分别传给 Seedream。
     product_hint 用 category(如"驾驶式洗地机")让 hero 等屏的环境带语境。
+    variant 由 style_pack 决定(如 factory/showroom/tech_grid/...),传 "" → 走 DEFAULT_VARIANT。
+
+    prev_variant/next_variant: 邻屏实际的 variant(也来自 style_pack)。
+    必须传下去,_transition_hint 才能按真实邻屏 palette 拼接缝描述。
+    不传 → 回退 DEFAULT,六图串联时会出现可见色带(本 bug 要解决的正是这个)。
 
     Why: 旧实现拼了一段抽象色调描述(theme_color_flows.bg_tone) +
          vol.prompt_* 函数,出来的图全是色块/渐变;新 prompt_templates
@@ -155,11 +164,13 @@ def _build_prompt(theme_id: str, screen: str, category: str,
     """
     prompt = prompt_templates.build_prompt(
         screen_type=screen,
-        variant=None,  # None → 走 DEFAULT_VARIANT(showroom/mall_corridor/...)
+        variant=variant or None,  # None → 走 DEFAULT_VARIANT(showroom/mall_corridor/...)
         theme_id=theme_id,
         prev_screen=prev_screen,
         next_screen=next_screen,
         product_hint=category or "",
+        prev_variant=prev_variant or None,
+        next_variant=next_variant or None,
     )
     return prompt, prompt_templates.NEGATIVE_PROMPT
 
@@ -171,7 +182,10 @@ def _generate_one(theme_id: str, screen: str, category: str,
                   product_name: str = "",
                   prev_screen: str | None = None,
                   next_screen: str | None = None,
-                  reference_image_url: str = "") -> str:
+                  reference_image_url: str = "",
+                  variant: str = "",
+                  prev_variant: str = "",
+                  next_variant: str = "") -> str:
     """
     单屏生成入口 — 根据 mode 决定走缓存或实时调 API。
     返回 /static/cache/ai_bg/<key>.png(成功)或 ""(失败 → 模板兜底)
@@ -181,8 +195,9 @@ def _generate_one(theme_id: str, screen: str, category: str,
 
     reference_image_url: 可选参考图路径或 data URL。
                          传空字符串(默认) → 纯文生图,行为与原来完全一致。
+    variant: style_pack 决定的场景变体(如 factory/showroom/...)，影响 prompt 和缓存 key。
     """
-    key = _cache_key(theme_id, screen, category, product_name)
+    key = _cache_key(theme_id, screen, category, product_name, variant)
     path = _cached_path(key)
 
     # cache 模式且缓存新鲜 → 直接复用
@@ -191,7 +206,8 @@ def _generate_one(theme_id: str, screen: str, category: str,
         return _to_static_url(path)
 
     prompt, negative = _build_prompt(theme_id, screen, category,
-                                     prev_screen, next_screen)
+                                     prev_screen, next_screen, variant,
+                                     prev_variant, next_variant)
     w, h = _SCREEN_CANVAS.get(screen, (768, 1024))
 
     # 参考图：把本地路径转成 data URL（已是 data URL 或 http URL 则原样透传）
@@ -234,6 +250,8 @@ def generate_backgrounds(theme_id: str,
                          screens: Iterable[str] = SCREENS_NEEDING_BG,
                          product_name: str = "",
                          reference_image_url: str = "",
+                         style_pack: str = "",
+                         random_style: bool = False,
                          ) -> Dict[str, str]:
     """
     并发生成 N 屏背景图。返回 {screen_type: bg_url 或 ""}。
@@ -249,9 +267,17 @@ def generate_backgrounds(theme_id: str,
       传空字符串(默认) → 纯文生图,行为与原来完全一致。
       传本地路径(如 /static/uploads/xxx.png)或 data URL →
         每屏调用都带同一张参考图,Seedream 会在风格/色调上向参考图靠拢。
+
+    style_pack: 风格包 id(如 "industrial_authority"),控制每屏选哪个 variant。
+      传 "random" 或 random_style=True → 随机盲盒模式,每次抽不同风格。
+      传 "" → 走 DEFAULT_STYLE_PACK(commercial_showroom)。
     """
     screens = tuple(screens)
     mode = get_mode()
+
+    # 解析 style_pack → variants_map
+    pack_id, variants_map = prompt_templates.pick_style_pack(style_pack, random_style)
+    print(f"[bg] style_pack={pack_id}")
 
     # 没有 API key → 全部走 CSS 兜底,不联网
     if not api_key:
@@ -277,7 +303,11 @@ def generate_backgrounds(theme_id: str,
             pool.submit(_generate_one, theme_id, s, product_category,
                         brand, api_key, mode, product_name,
                         prev_map[s], next_map[s],
-                        reference_image_url): s
+                        reference_image_url,
+                        variants_map.get(s, ""),
+                        # 邻屏的实际 variant(由 style_pack 决定) — 让接缝描述与邻屏真实 palette 一致
+                        variants_map.get(prev_map[s], "") if prev_map[s] else "",
+                        variants_map.get(next_map[s], "") if next_map[s] else ""): s
             for s in screens_list
         }
         for fut in as_completed(futures):
@@ -292,3 +322,91 @@ def generate_backgrounds(theme_id: str,
     hits = sum(1 for v in results.values() if v)
     print(f"[bg] 完成: {hits}/{len(screens)} 屏拿到背景图")
     return results
+
+
+# ── VS 对比屏"传统人工"参考图 ─────────────────────────────────
+#
+# 与背景图不同:这是"对照物"语义,需要"每次长得一样"的稳定性。
+# 所以:
+#   - 不走 AI_BG_MODE (即使设成 realtime 也不重烧)
+#   - 不加 theme / style_pack / variant 变体
+#   - 永久磁盘缓存 (force_refresh=True 才重烧)
+#   - prompt 固定
+#
+# Why: 用户反馈"VS 屏要有两张并列图做对照";对照物每次视觉不一样反而削弱对比说服力。
+
+_LABOR_CACHE_FILENAME = "vs_labor.png"
+
+_LABOR_PROMPT = (
+    "一位身穿蓝色工作服的中年保洁员,双手握住拖把,"
+    "正在商场大堂的光滑地面上推拖把清洁;中景写实摄影,自然顶光,"
+    "景深浅,背景是明亮的商场大堂(虚化),1:1 构图,高清,"
+    "人物姿态自然,面部清晰,不露商标不露店招,专业摄影"
+)
+
+_LABOR_NEGATIVE = (
+    "卡通,插画,低质量,模糊,变形,多余手指,水印,文字,商标,"
+    "机器人,扫地机器人,洗地机,设备,科技感,未来感"
+)
+
+_LABOR_URL_CACHE: str | None = None
+
+
+def get_labor_reference_image(api_key: str = "", force_refresh: bool = False) -> str:
+    """
+    返回 VS 对比屏用的"传统人工清洁工"HD 参考图 URL(相对路径)。
+
+    策略:
+      - 进程级内存 memo `_LABOR_URL_CACHE`(仅缓存非空结果 → 降级态可重试)
+      - 永久磁盘缓存: static/cache/ai_bg/vs_labor.png (除非手动删或 force_refresh=True)
+      - 命中缓存 → 直接返回 "/static/cache/ai_bg/vs_labor.png"
+      - 未命中 + 有 api_key → 调 Seedream 生成 1:1 高清写实图,下载保存
+      - 未命中 + 无 api_key → 返回 "" (模板回退到单图模式)
+
+    复用底层:
+      - vol.generate_segment(zone, prompt, api_key, ...) 返回图片 URL 列表
+      - vol.download_image(url, save_dir, filename) 下载到本地(内部清代理)
+    """
+    global _LABOR_URL_CACHE
+    if _LABOR_URL_CACHE and not force_refresh:
+        return _LABOR_URL_CACHE
+
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = CACHE_DIR / _LABOR_CACHE_FILENAME
+
+    if cache_path.exists() and not force_refresh:
+        url = _to_static_url(cache_path)
+        _LABOR_URL_CACHE = url
+        return url
+
+    if not api_key:
+        print("[labor] 无 ARK_API_KEY,跳过生成,VS 屏走单图")
+        return ""
+
+    try:
+        urls = vol.generate_segment(
+            "vs_labor",
+            _LABOR_PROMPT,
+            api_key,
+            width=1024,
+            height=1024,
+            negative_prompt=_LABOR_NEGATIVE,
+        )
+        if not urls:
+            print("[labor] Seedream 返回空 URL 列表")
+            return ""
+
+        local = vol.download_image(urls[0], CACHE_DIR, filename=_LABOR_CACHE_FILENAME)
+        if not local or not Path(local).exists():
+            print("[labor] 下载失败")
+            return ""
+
+        print(f"[labor] 生成并缓存 → {cache_path}")
+        url = _to_static_url(cache_path)
+        _LABOR_URL_CACHE = url
+        return url
+
+    except Exception as e:
+        print(f"[labor] ERROR: {e}")
+        traceback.print_exc()
+        return ""

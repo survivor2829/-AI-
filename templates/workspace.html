@@ -621,6 +621,15 @@
       <!-- populated by loadThemes() -->
     </div>
 
+    <!-- AI 风格包(仅 AI 精修版生效) -->
+    <p class="panel-right-title" style="margin-top:18px; display:flex; align-items:center; gap:6px;">
+      AI 风格
+      <span style="font-size:10px; font-weight:500; color:var(--color-text-muted); background:var(--color-bg-soft,#f4f4f5); padding:2px 6px; border-radius:4px;">AI 精修专用</span>
+    </p>
+    <div class="style-pack-grid" id="style_pack_grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+      <!-- populated by loadStylePacks() -->
+    </div>
+
     <!-- E-commerce Copy Section -->
     <div id="ecom_content">
       <div class="ecom-panel">
@@ -699,6 +708,9 @@
   let currentProductType = '{{ initial_product_type|default("设备类") }}';
   let currentThemeId = 'classic-red';
   let allThemes = [];
+  let allStylePacks = [];
+  let currentStylePack = '';         // '' = 默认(commercial_showroom); 'random' = 盲盒
+  let currentRandomStyle = false;    // true = 每次随机抽一个包 (等价 currentStylePack='random')
   let currentBuildData = null;
   let originalRawText = '';
   let mainImageHtmls = [];       // [{id, name, html}, ...]
@@ -874,6 +886,61 @@
       Object.entries(theme.vars).forEach(([key, value]) => {
         mainLarge.style.setProperty(key, value);
       });
+    }
+  }
+
+  /* ── AI 风格包(仅 AI 精修版生效) ───────────────────────────── */
+  // icon 用 emoji,无需额外资源;不同包一眼可辨(权威/展厅/奢华/科技/户外/车间/盲盒)
+  const STYLE_PACK_ICONS = {
+    industrial_authority: '🏭',
+    commercial_showroom:  '🏬',
+    luxury_hospitality:   '🏨',
+    tech_minimal:         '🔬',
+    outdoor_architectural:'🏙️',
+    workshop_utility:     '🔧',
+    random:               '🎲',
+  };
+
+  async function loadStylePacks() {
+    try {
+      const resp = await fetch('/api/style-packs', { headers: { 'X-CSRFToken': csrfToken } });
+      const data = await resp.json();
+      allStylePacks = data.packs || [];
+      renderStylePackGrid();
+    } catch (e) { console.error('Failed to load style packs', e); }
+  }
+
+  function renderStylePackGrid() {
+    const grid = document.getElementById('style_pack_grid');
+    if (!grid) return;
+    // 未选 = 默认包(commercial_showroom);选 random 走盲盒
+    grid.innerHTML = allStylePacks.map(p => {
+      const sel = (p.id === currentStylePack) || (!currentStylePack && p.id === 'commercial_showroom');
+      const isRandom = p.id === 'random';
+      const icon = STYLE_PACK_ICONS[p.id] || '🎨';
+      const borderColor = sel ? 'var(--color-primary)' : 'var(--color-border, #e5e7eb)';
+      const bgColor = sel ? 'rgba(232,35,26,0.04)' : '#fff';
+      const randomHint = isRandom ? ' 🎲' : '';
+      return `
+        <div class="style-pack-card" data-pack-id="${p.id}" onclick="applyStylePack('${p.id}')" title="${p.desc}"
+             style="cursor:pointer; border:1.5px solid ${borderColor}; border-radius:8px; padding:8px 6px; background:${bgColor}; text-align:center; transition:all .15s;">
+          <div style="font-size:22px; line-height:1;">${icon}</div>
+          <div style="font-size:11px; font-weight:600; color:var(--color-text); margin-top:4px;">${p.label}${randomHint}</div>
+          <div style="font-size:9px; color:var(--color-text-muted); margin-top:2px; line-height:1.25; height:22px; overflow:hidden;">${p.desc}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function applyStylePack(packId) {
+    currentStylePack = packId;
+    currentRandomStyle = (packId === 'random');
+    renderStylePackGrid();
+    // 如果包建议某个主题色,顺便切过去(用户仍可手动覆盖)
+    const pack = allStylePacks.find(p => p.id === packId);
+    if (pack && pack.recommended_theme && pack.recommended_theme !== currentThemeId) {
+      const rec = allThemes.find(t => t.id === pack.recommended_theme);
+      if (rec) applyTheme(rec.id);
     }
   }
 
@@ -1279,6 +1346,8 @@
       effect_image:  effectImageUrl || '',   // 效果图 → scene 屏背景覆盖
       qr_image:      qrImageUrl     || '',   // 二维码 → cta 屏
       theme_id:      currentThemeId,
+      style_pack:    currentStylePack,       // AI 风格包 (''=默认商业展厅, 'random'=盲盒)
+      random_style:  currentRandomStyle,     // 也可以布尔标志触发盲盒(冗余但容错)
       ark_api_key:   arkKey,                 // 用户自带 key,服务端优先用这个,不消耗站长 ENV 额度
       out_jpg_name:  `detail_v2_${Date.now()}.jpg`,
       save_png:      false,
@@ -1467,6 +1536,7 @@
   /* ── Init ───────────────────────────────────────────────────── */
   document.addEventListener('DOMContentLoaded', () => {
     loadThemes();
+    loadStylePacks();       // 并行加载 AI 风格包(独立于主题色,不互相阻塞)
     renderArkKeyStatus();   // 显示用户已配置的豆包 Key 状态(末4位)
     // 产品图走自动抠图 — 否则 AI 精修合成时原图背景 + 原图水印文字会穿透到模板
     initUploadBox('upload_product', url => { productImageUrl = url; }, { autoRembg: true });

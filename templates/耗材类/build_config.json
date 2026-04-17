@@ -7,12 +7,12 @@
   "spec_block_template": "blocks/block_e_glass_dimension.html",
   "default_cover_image": "",
   "hero_cover_defaults": {
-    "category_line": "专业清洁耗材",
-    "main_title": "清洁耗材",
-    "hero_subtitle_pre": "高效清洁 ",
-    "hero_subtitle_em": "安全",
-    "hero_subtitle_post": " 环保配方",
-    "footer_note": "*请按推荐稀释比例使用，避免直接接触皮肤。",
+    "category_line": "",
+    "main_title": "",
+    "hero_subtitle_pre": "",
+    "hero_subtitle_em": "",
+    "hero_subtitle_post": "",
+    "footer_note": "*产品不定期升级，外观及颜色可能有部分差异，以实际发货为准。",
     "bg_focal": "center center"
   },
   "generic_enabled_screens": [1, 2, 5, 10],
@@ -40,16 +40,11 @@
   },
   "blocks_hardcoded": {
     "block_b2": {
-      "title_num": "4",
+      "title_num": "",
       "title_text": "大产品优势",
-      "subtitle": "专业清洁配方",
+      "subtitle": "",
       "grid_columns": 2,
-      "items": [
-        {"icon_image": "", "icon_text": "🧪", "label": "专业配方"},
-        {"icon_image": "", "icon_text": "🌿", "label": "安全环保"},
-        {"icon_image": "", "icon_text": "💧", "label": "高效去污"},
-        {"icon_image": "", "icon_text": "💰", "label": "经济实惠"}
-      ]
+      "items": []
     },
     "block_b3": {
       "header_line1": "",
@@ -123,7 +118,7 @@
     "service_note": ""
   },
   "block_y": {
-    "section_title": "超值性价比",
+    "section_title": "每次使用成本",
     "section_subtitle": "精打细算，每次清洁成本更低",
     "cost_per_use": "",
     "coverage_text": "",

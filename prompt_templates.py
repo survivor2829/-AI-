@@ -327,6 +327,65 @@ DEFAULT_VARIANT = {
     "story":      None,  # 沿用 advantages:soft_paper
 }
 
+STYLE_PACKS: dict[str, dict] = {
+    "industrial_authority": {
+        "label": "工业权威",
+        "desc": "冷峻工业场景，厂房/生产线质感",
+        "recommended_theme": "classic-red",
+        "variants": {"hero": "factory", "advantages": "tech_grid", "specs": "metal_brushed", "vs": "split_light_dark", "scene": "factory_floor", "brand": "dark_metallic", "cta": "soft_spotlight"},
+    },
+    "commercial_showroom": {
+        "label": "商业展厅",
+        "desc": "明亮展厅/玻璃大厅，旗舰店质感",
+        "recommended_theme": "classic-red",
+        "variants": {"hero": "showroom", "advantages": "minimal_white", "specs": "frosted_glass", "vs": "split_light_dark", "scene": "mall_corridor", "brand": "deep_gradient", "cta": "clean_gradient"},
+    },
+    "luxury_hospitality": {
+        "label": "奢华酒店",
+        "desc": "五星酒店大理石，高端服务场景",
+        "recommended_theme": "minimal-mono",
+        "variants": {"hero": "showroom", "advantages": "soft_paper", "specs": "frosted_glass", "vs": "stage_arena", "scene": "hotel_lobby", "brand": "dark_metallic", "cta": "soft_spotlight"},
+    },
+    "tech_minimal": {
+        "label": "科技极简",
+        "desc": "冰蓝科技实验室，极简精密",
+        "recommended_theme": "tech-blue",
+        "variants": {"hero": "showroom", "advantages": "tech_grid", "specs": "dark_carbon", "vs": "split_light_dark", "scene": "transport_hub", "brand": "deep_gradient", "cta": "clean_gradient"},
+    },
+    "outdoor_architectural": {
+        "label": "户外建筑",
+        "desc": "黄昏广场玻璃幕墙，都市大气",
+        "recommended_theme": "tech-blue",
+        "variants": {"hero": "outdoor", "advantages": "minimal_white", "specs": "metal_brushed", "vs": "stage_arena", "scene": "transport_hub", "brand": "dark_metallic", "cta": "soft_spotlight"},
+    },
+    "workshop_utility": {
+        "label": "车间实用",
+        "desc": "真实工厂地面，可信赖感",
+        "recommended_theme": "classic-red",
+        "variants": {"hero": "factory", "advantages": "soft_paper", "specs": "metal_brushed", "vs": "split_light_dark", "scene": "factory_floor", "brand": "dark_metallic", "cta": "clean_gradient"},
+    },
+}
+
+DEFAULT_STYLE_PACK = "commercial_showroom"
+
+
+def pick_style_pack(style_pack: str = "", random_mode: bool = False) -> tuple[str, dict]:
+    """返回 (pack_id, variants_dict)。random_mode 或 style_pack=='random' → 随机抽；否则按 id 取，未知回退 DEFAULT_STYLE_PACK。"""
+    import random
+    if random_mode or style_pack == "random":
+        pack_id = random.choice(list(STYLE_PACKS.keys()))
+    else:
+        pack_id = style_pack if style_pack in STYLE_PACKS else DEFAULT_STYLE_PACK
+    return pack_id, STYLE_PACKS[pack_id]["variants"]
+
+
+def list_style_packs() -> list[dict]:
+    """前端消费：返回 [{id, label, desc, recommended_theme}, ...] + 一张随机卡。"""
+    items = [{"id": k, "label": v["label"], "desc": v["desc"],
+              "recommended_theme": v["recommended_theme"]} for k, v in STYLE_PACKS.items()]
+    items.append({"id": "random", "label": "随机盲盒", "desc": "每次抽一个风格,像开盲盒", "recommended_theme": "classic-red"})
+    return items
+
 
 # ── Prompt 构建 ────────────────────────────────────────────────────────
 
@@ -352,11 +411,18 @@ def _variant_dict(screen_type: str, variant: str | None) -> dict:
 
 
 def _transition_hint(prev_screen: str | None, next_screen: str | None,
-                     pal: dict) -> str:
+                     pal: dict,
+                     prev_variant: str | None = None,
+                     next_variant: str | None = None) -> str:
     """
     色调 + 反模式过渡提示。
     关键：绝对不出现屏幕英文名（hero/advantages/specs/vs/scene/brand/cta），
     否则模型会把英文名直接渲染成图中文字（v1 specs 段的 "Advantages" 来源）。
+
+    prev_variant/next_variant: 邻屏**实际使用**的 variant(由 style_pack 决定)。
+    不传 → 回退 DEFAULT_VARIANT。必须传才能让拼接两侧的 palette 描述一致,
+    否则 style_pack 切换了邻屏 variant 但 transition hint 还按 default 算,
+    Seedream 会按错误方向着色边缘,反而产生明显色带。
     """
     parts = []
     if prev_screen is None:
@@ -364,7 +430,7 @@ def _transition_hint(prev_screen: str | None, next_screen: str | None,
             "the top edge establishes a quiet anchoring tone with no hard line"
         )
     else:
-        prev_v = _variant_dict(prev_screen, DEFAULT_VARIANT.get(prev_screen))
+        prev_v = _variant_dict(prev_screen, prev_variant or DEFAULT_VARIANT.get(prev_screen))
         prev_palette = _fmt(prev_v["palette"], pal)
         parts.append(
             f"the top fringe carries a lingering tonal echo of {prev_palette}, "
@@ -375,7 +441,7 @@ def _transition_hint(prev_screen: str | None, next_screen: str | None,
             "the bottom edge settles into a grounded closing tone with no hard line"
         )
     else:
-        next_v = _variant_dict(next_screen, DEFAULT_VARIANT.get(next_screen))
+        next_v = _variant_dict(next_screen, next_variant or DEFAULT_VARIANT.get(next_screen))
         next_palette = _fmt(next_v["palette"], pal)
         parts.append(
             f"the bottom fringe softly dissolves toward {next_palette}, "
@@ -389,7 +455,9 @@ def build_prompt(screen_type: str,
                  theme_id: str,
                  prev_screen: str | None = None,
                  next_screen: str | None = None,
-                 product_hint: str = "") -> str:
+                 product_hint: str = "",
+                 prev_variant: str | None = None,
+                 next_variant: str | None = None) -> str:
     """
     构建单屏 prompt（自然语言散文，无大写分段标签，无电商词）。
     """
@@ -408,7 +476,10 @@ def build_prompt(screen_type: str,
     ]
 
     # 过渡提示 —— 纯色调 + 强否定（无屏幕名）
-    transition = _transition_hint(prev_screen, next_screen, pal)
+    # 把邻屏的实际 variant 传下去,确保接缝两侧的 palette 描述一致(不再硬编码 DEFAULT)
+    transition = _transition_hint(prev_screen, next_screen, pal,
+                                  prev_variant=prev_variant,
+                                  next_variant=next_variant)
     if transition:
         sentences.append(f"Edge continuity: {transition}.")
 
@@ -447,10 +518,13 @@ def list_themes() -> list[str]:
 def get_prompts_for_theme(theme_id: str,
                           screen_list: list[str],
                           variants: dict[str, str] | None = None,
-                          product_hint: str = "") -> list[dict]:
+                          product_hint: str = "",
+                          style_pack: str = "") -> list[dict]:
     """
     根据主题 ID 和屏幕列表返回 prompt 序列。
     签名与 v1 完全一致，调用方无需改动。
+
+    优先级：显式 variants > style_pack 的 variants > DEFAULT_VARIANT。
 
     返回 list[dict]，每项：
     {
@@ -462,13 +536,23 @@ def get_prompts_for_theme(theme_id: str,
         "negative_prompt": "...",
     }
     """
-    variants = variants or {}
+    # 解析 style_pack variants（优先级低于显式传入的 variants）
+    pack_variants: dict[str, str] = {}
+    if style_pack:
+        _, pack_variants = pick_style_pack(style_pack)
+    # 显式 variants 覆盖 pack_variants
+    merged_variants = {**pack_variants, **(variants or {})}
+    variants = merged_variants
     out: list[dict] = []
     for i, z in enumerate(screen_list):
         prev_z = screen_list[i - 1] if i > 0 else None
         next_z = screen_list[i + 1] if i + 1 < len(screen_list) else None
         variant = variants.get(z) or DEFAULT_VARIANT.get(z)
-        prompt = build_prompt(z, variant, theme_id, prev_z, next_z, product_hint)
+        # 邻屏实际 variant(随 style_pack 变),不是 DEFAULT_VARIANT — 否则接缝方向算错
+        prev_variant = variants.get(prev_z) if prev_z else None
+        next_variant = variants.get(next_z) if next_z else None
+        prompt = build_prompt(z, variant, theme_id, prev_z, next_z, product_hint,
+                              prev_variant=prev_variant, next_variant=next_variant)
         out.append({
             "zone":            z,
             "variant":         variant or "default",

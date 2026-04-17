@@ -8,6 +8,7 @@
   变量：
   - logo_image: 可选，顶部 Logo URL
   - category_line: 品类一行，如「多功能清洁机器人」
+  - product_name / brand_text: 第一行小字数据源（品牌+产品名），优先级高于 category_line
   - model_name: 型号，胶囊标签
   - main_title: 主标题
   - hero_subtitle_pre, hero_subtitle_em, hero_subtitle_post: 副标题三段
@@ -56,7 +57,8 @@
 
       <div style="display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
         <span style="font-size:20px; color:rgba(255,255,255,0.88); font-weight:500; letter-spacing:1px;">
-          {{ category_line or brand_text or '' }}
+          {# app.py:_map_parsed_to_form_fields 已把 category_line 组装为"产品名+型号"(如 "DZ50X 驾驶式洗地机");优先用它,保证首屏小字带具体产品 #}
+          {% if category_line %}{{ category_line }}{% elif brand_text and product_name %}{{ brand_text }} {{ product_name }}{% elif product_name %}{{ product_name }}{% elif brand_text %}{{ brand_text }}{% endif %}
         </span>
         {% if model_name %}
         <span style="font-size:17px; color:#fff; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.35); padding:5px 18px; border-radius:999px; font-weight:700; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); letter-spacing:0.5px;">
