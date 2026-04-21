@@ -69,6 +69,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip config set global.index-url https://mirrors.cloud.tencent.com/pypi/simple/ && \
     pip config set global.trusted-host mirrors.cloud.tencent.com
 
+# playwright 下 chromium (150M) 默认走 playwright.azureedge.net, 中国大陆
+# 访问 Azure Edge CDN 经常卡死在首次握手 + 超长 backoff (腾讯云踩过, 单步
+# 40 分钟仍无数据下载). 改走阿里 npmmirror 镜像, 稳定 < 1 分钟完成.
+ENV PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright
+
 # 系统依赖已在上一步装好，这里只拉浏览器二进制
 RUN pip install --no-cache-dir playwright && \
     playwright install chromium
