@@ -92,6 +92,35 @@
 
 触发条件：用户数/并发需求上来、或 2C2G 出现明显 OOM / 响应变慢。
 
+#### 性能扩展性分析 (2026-04-21 生产第二批观察后补, 对应问题3)
+
+**单产品耗时模型** (冷启 → 稳态):
+- DeepSeek 解析: 5–15s (API IO-bound, 不吃本地 CPU/内存)
+- rembg 抠图: 首载模型 ~30s, 之后 ~3–5s/图 (CPU-bound, 吃满 1 核)
+- Playwright 渲染 + 截图: Chromium ~600MB/实例, ~15–30s/产品 (冷启 ~60s)
+- **单产品合计**: 首产品冷启 90–120s, 热批 30–50s/产品
+
+**三档硬件吞吐对照表**:
+
+| 配置 | 并发上限 | 30 产品 ETA | 安全批量上限 | 适用场景 |
+|---|---|---|---|---|
+| **2C2G** (当前) | 1 (≥2 必 OOM) | 30 × 40s ≈ 20–50 分钟 (swap 抖动时更慢) | **5 产品/批** | 内部测试 / 个人演示 |
+| **4C8G** | 3 worker | 10–15 分钟 | **10 产品/批** | 团队共用 / 小客户 |
+| **8C16G** | 6 worker | 3–5 分钟 | **30+ 产品/批** (PRD F3 的 50 上限真跑得动) | 多客户并发 |
+
+**升级触发阈值** (任一命中就升):
+- 2C2G → 4C8G: (a) 单批 ≥ 5 产品 实测 > 10 分钟; (b) `free -h` swap used > 500MB 持续 > 5 分钟; (c) 用户主观说"卡"≥ 2 次
+- 4C8G → 8C16G: (a) 单批 50 产品 > 20 分钟; (b) 多用户并发 ≥ 3 导致排队 > 5 分钟
+
+**OOM 风险推导 (2C2G)**:
+- 系统 + docker 常驻 ~400MB
+- gunicorn 2 gthread workers ~500MB
+- rembg onnx 模型加载 ~300MB
+- Playwright Chromium (首产品时) ~600MB → 峰值 ~1.8GB 接近 2GB 顶
+- 如果 gunicorn 再多起一个 Chromium (并发 2), 必 swap, 90% 概率 OOM kill
+
+**当前状态** (2026-04-21): 2C2G 单用户小批 (3 产品) 已实测 ~10 分钟内完成, 未触发升级条件; 但第二批跑慢已踩到心理阈值边缘, 下次 ≥ 5 产品批就要上 4C8G。
+
 - [ ] **机器升级 4C8G 起**（当前 2C2G 跑 2 workers + rembg 模型加载偶发内存紧张）
 - [ ] **Postgres 接入**：
   - `.env` 改 `DATABASE_URL=postgresql://xiaoxi:<pwd>@db:5432/xiaoxi`
@@ -111,6 +140,120 @@
 - [ ] **备份自动化**：cron daily SQLite/PG + uploads tar.gz → 腾讯云 COS（当前只有 `/root/backup_20260421/` 这一次手工备份）
 - [ ] **日志 + 监控**：至少加 logrotate（docker compose logs 不清会占磁盘），锦上添花是 promtail/loki/grafana
 - [ ] **docker-compose.full.yml override**：把 `web.depends_on` 补回来（当前主 compose 文件因 Compose V2 profile gating 限制移除了 depends_on，full 部署需要再 override）
+
+### 阶段八：用户体验打磨 🔜 待启动 (2026-04-21 生产第二批观察后新增)
+
+**背景**: 生产二批 (3 产品 87MB) 跑通后, 用户观察到 4 类 UX 问题。阶段七聚焦硬件/性能, 阶段八聚焦"看得见的顺滑度"。今晚**只诊断不修代码**, 明天 review 优先级。
+
+#### 8.1 上传交互丝滑化 (问题1)
+
+**现象**: `/batch/upload` 点击文件夹图标 (📁 emoji) 不触发文件对话框, 必须点旁边蓝色 padding 区域才触发。
+
+**代码现状** (`templates/batch/upload.html:580-585`):
+```html
+<label class="picker" id="picker">
+  <div class="icon">📁</div>
+  <div class="hint" id="pickerHint">选择产品文件夹</div>
+  <div class="sub">...</div>
+  <input type="file" id="folderInput" webkitdirectory directory multiple>
+</label>
+```
+
+**根因分析** (已排除 + 锁定):
+- ✅ 结构合法: input 嵌套在 label 内, 走"implicit association", HTML spec 规定点击 label 任何子孙都应触发 input
+- ✅ 无 `preventDefault` / `stopPropagation` 干扰 (`grep preventDefault|stopPropagation templates/batch/upload.html` → 0 命中)
+- ✅ JS 层只有 `folderInput.addEventListener('change', ...)` (L666), 无 click 拦截
+- ✅ CSS 层 `.picker { cursor: pointer }` L89, `.picker input[type="file"] { display: none }` L98 正常
+- ✅ 其他 `pointer-events:none` / `z-index` hit (L376/438/446/458) 都作用在 modal / nav / disabled 状态, 不影响 picker
+- ❌ **最可能原因**: Chrome on Windows 11 下 Segoe UI Emoji 字体把 📁 渲染成彩色位图图层, 形成独立 hit target; 该图层在特定 Chrome 版本里不冒泡到 label, 配合 input 的 `display: none`, click forward 偶发失败
+
+**修复方案** (推荐 A+B 叠加, 共 5 行代码):
+- **A (CSS)**: `.picker .icon, .picker .hint, .picker .sub { pointer-events: none; }` — 点击穿透到 label 本身, label 再触发嵌套 input。对 emoji / 文字 / SVG icon 都稳
+- **B (JS 兜底)**: `picker.addEventListener('click', e => { if (e.target !== folderInput) folderInput.click(); })` — 不论 CSS 或浏览器状态, 强制触发。防御性写法
+- **验证方法**: Chrome + Edge 分别点击图标、文字、"蓝色空白", 三者都应弹出文件对话框
+- **工作量**: 5–10 分钟, 纯前端, 零后端改动
+
+#### 8.2 Loading 动画 / 进度视觉反馈 (问题4)
+
+**现状盘点** (全站 loading 交互点):
+
+| 交互点 | 现有反馈 | 评级 |
+|---|---|---|
+| `workspace.html` AI 长图生成 | Spinner + 进度文案 + 全屏 overlay (L584, 698, 966-973) | ★★★★ 已相对完善, 有"情绪" |
+| `batch/upload.html` 上传 | `正在上传...` 纯文字 (L712) | ★★ 差: 87MB 上传 5 分钟用户以为卡死 |
+| `batch/upload.html` 打包 (JSZip) | `打包中(浏览器内 JSZip 压缩)...` 纯文字 (L710) | ★★ 差: 大批量 30s+ 无进度 |
+| `batch/upload.html` 费用估算弹窗 | `正在计算费用…` 纯文字 (L602) | ★★ 差 |
+| `batch/upload.html` 批处理 | progress-card (0–100% 总进度) + 每行产品静态 badge (L1030-1063) | ★★★ 中: 有总进度, 缺每产品阶段感 |
+| `batch/history.html` 列表 | 静态 status badges, 无 live 心跳 (L193-200) | ★★ 差: 要刷新才更新 |
+| 首屏加载 | 无 skeleton | ★★★ 中: 页面够轻, 问题不突出 |
+
+**后端抓手** (关键发现): `batch_processor.py` 的 print 埋点完整 (L243 DeepSeek 解析 / L251 parsed.json 落盘 / L270 rembg 抠图 / L274 product_cut.png 完成 / L285 渲染 / L188 截图完成), **目前只进 stdout, 没经 pubsub 推到 WebSocket**, 前端因此拿不到 per-stage 进度。要做"每产品阶段动画"只需把这些 print 点同步 publish 即可, 不重构。
+
+**⚠ 同时发现的坑**: `batch_processor.py` 全文 `grep time.time|elapsed|耗时|duration` → **0 命中**。没有任何阶段计时埋点, 所以"剩余时间"只能靠前端粗估 (上传按 XHR.upload.loaded / total, 批处理按已完成比例线性外推), 短期不做精准 ETA。
+
+**4 个并列方案** (明天决定优先级):
+
+**方案 A — 进度文案 + 轻量 Lottie 图标** (统一视觉, 情绪感)
+- 找 4–6 个免费 Lottie 小动画 (folder-opening / scissors / paint-brush / camera-shutter)
+- 封装 Jinja macro `{% macro loading_block(variant, text) %}`
+- 全站 loading 场景统一换皮
+- **工作量**: 1 晚 (找 Lottie + 封装)
+- **收益**: 视觉统一有"情绪", **不**解决"不知道卡在哪"的焦虑
+
+**方案 B — 每产品阶段动画** (批处理专用, 杀"以为卡死"感)
+- 产品行 pill: `解析中 🤖` → `抠图中 ✂️` → `渲染中 🎨` → `截图中 📸` → `完成 ✓`
+- 后端: `batch_processor.py` 每个 print 点同步 pubsub publish `item.stage_update` 事件 (沿用现有 WS 通道)
+- 前端: `openWS` 的 `handleEvent` 加 `case 'item.stage_update'` → 更新行内 pill + emoji 轻微 bounce 动画
+- **工作量**: 半天 (后端 ~30 行 + 前端 ~40 行, 抓手已在)
+- **收益**: **杀手级** — 直接解决批量生成时"不知道每个产品跑到哪一步"
+
+**方案 C — Skeleton 骨架屏** (数据加载中的结构化占位)
+- `batch/history.html` 列表 / admin 详情页加载期间
+- 灰色色块 + subtle pulse 动画
+- **工作量**: 1 晚 (CSS 封装 + 各页应用)
+- **收益**: 低, 当前页面够轻, 问题不是痛点
+
+**方案 D — 上传进度条 + 剩余时间** (解决"上传看不到进度")
+- 改 `btnUpload` handler 里 `fetch('/api/batch/upload', ...)` → `new XMLHttpRequest()`
+  (fetch 原生不支持 upload progress; Chrome 137+ 的 ReadableStream request body 方案仍不稳)
+- `xhr.upload.onprogress` 每 200ms 更新: `上传中 37% · 2.1 MB/s · 剩余 45s`
+- **工作量**: 半小时 (改 upload.html ~15 行 JS)
+- **收益**: **最高性价比** — 单次改动解决 87MB 批次的用户焦虑
+
+**推荐排期** (供明天决定):
+
+| 优先级 | 方案 | 工作量 | 理由 |
+|---|---|---|---|
+| 必做 1 | D 上传进度 + ETA | 半小时 | 收益/成本最高 |
+| 必做 2 | B 每产品阶段动画 | 半天 | 杀手级体验, 后端抓手已有 |
+| 锦上添花 | A Lottie 统一皮肤 | 1 晚 | 视觉升级, 非紧急 |
+| 可延后 | C skeleton | 1 晚 | 当前不是痛点 |
+
+#### 8.3 其他 UX 小坑汇总
+
+(空, 后续观察到的小问题往这里堆, 集中一个版本清)
+
+#### 已知物理限制 (不归阶段八修复范围, 问题2 归档)
+
+**问题2: 上传速度慢 (87MB / 3 产品)**
+
+**分析**:
+- 87MB / 3 产品 ≈ 29MB/产品 (主要来自 detail_image_paths 原始大图)
+- 中国家庭宽带典型上行 2–10 Mbps = 0.25–1.25 MB/s → 理论上传 70s (10Mbps) ~ 350s (2Mbps)
+- 叠加客户端 JSZip DEFLATE 压缩: 对已压缩的 JPEG/PNG 压缩率 ≈ 0, 反而多耗 5–15s CPU (grep 代码 L701: `compression: 'DEFLATE'`)
+
+**本质**: 受限于用户本地上行带宽, 物理下限不可越。
+
+**可选优化** (边际收益):
+- **可做 (合并进方案 D)**: 显示实时 % + 预估剩余时间, 化"焦虑"为"耐心"
+- **可做**: 客户端 Canvas 压缩大图 (JPEG quality 0.85–0.9, 大 PNG 转 JPG, 仅限详情图; 产品主图保原透明) — 可减 30–50% 体积, 需 opt-in 复选框
+- **可做**: 跳过 ZIP → FormData 多文件并发 (浏览器限同域 ~6 并发) → 小幅收益 (省打包 CPU + RAM); 但会增加后端 unzip → 多路径拼接的复杂度, 不推荐
+- **不能做**:
+  - CDN inbound 上行加速: CDN 加速的是下行缓存, 对用户→源站上行无益
+  - 分片上传 (TUS / S3 multipart): 87MB 不至于, 工程量过重
+  - 扩服务器带宽: 瓶颈在用户端, 不在服务器
+
+**结论**: 进度反馈先做 (方案 D), 压缩 opt-in 二期考虑, 其余不改。
 
 ## 已确认的决策
 - [2026-04-20] 任务1 暂不加 `@login_required` + `@csrf.exempt`，方便 curl/Postman 直测；任务4 整链路打通后补回。
