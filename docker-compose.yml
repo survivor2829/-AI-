@@ -1,18 +1,22 @@
-# 生产 compose — 带 Postgres + Redis, 无热挂载 (镜像里是完整代码副本).
-# 开发用 docker-compose.dev.yml (带 :ro 热挂载, 免重建镜像迭代).
+# 生产 compose — 两种部署形态:
 #
-# 启动:
-#   docker compose up -d --build
+#   1) 单机最小 (阶段六当前): docker compose up -d
+#      → 只起 web, SQLite + 内存 pub/sub, 适合 2核2G 小机 / 个人测试
+#   2) 完整生产 (阶段七上大机再用): docker compose --profile full up -d
+#      → web + pg + redis 全栈
+#
+# db/redis 打了 profiles: ["full"], 默认 up 不会起. Compose V2 会自动把 web
+# depends_on 里指向未激活 profile service 的条目摘掉, 所以 depends_on 不用改.
 #
 # 扩展性标注:
+# - 小机 → 大机升级零改代码: 把 .env 的 DATABASE_URL / PUBSUB_BACKEND 指向 pg/redis,
+#   然后 `docker compose --profile full up -d`
 # - db/redis 走内部网络, 不对外暴露端口 (腾讯云安全组外层还会再挡)
-# - web depends_on 只保证启动顺序, 不保证业务就绪; web 的 DB 连接要靠 pool_pre_ping 重连
 # - pg_data / redis_data 是 named volume, docker compose down 不会清, 只有 down -v 才会
-# - 未来要上 LB / 多机部署, 把 db/redis 剥出来走独立 Compose 或云托管即可
-#   (web 侧零改动, 只换 DATABASE_URL / REDIS_URL)
 
 services:
   db:
+    profiles: ["full"]
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
@@ -29,6 +33,7 @@ services:
       retries: 5
 
   redis:
+    profiles: ["full"]
     image: redis:7-alpine
     restart: unless-stopped
     # --requirepass 只在 REDIS_PASSWORD 非空时生效 (内网部署可选)
@@ -65,8 +70,9 @@ services:
       - .env
     environment:
       PYTHONUNBUFFERED: "1"
-      # 关键默认值 — .env 里没配就走这里
-      PUBSUB_BACKEND: ${PUBSUB_BACKEND:-redis}
+      # 关键默认值 — .env 里没配就走这里. 单机最小部署默认 memory, full profile
+      # 启动时 .env 应显式设 PUBSUB_BACKEND=redis (否则内存 pub/sub 跨不了进程)
+      PUBSUB_BACKEND: ${PUBSUB_BACKEND:-memory}
     volumes:
       # 用户产物持久化 — named volume 在 /var/lib/docker/volumes/ 下
       - uploads:/app/static/uploads
