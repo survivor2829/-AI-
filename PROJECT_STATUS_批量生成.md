@@ -1,7 +1,8 @@
 # 批量生成功能 项目状态
 
-> 最后更新：2026-04-21
-> 当前进度：阶段四全部归档，待启动阶段五
+> 最后更新：2026-04-21（晚间，阶段六生产上线完成）
+> 当前进度：**阶段六生产上线完成**（腾讯云 http://124.221.23.173:5000/），阶段七（硬件升级 + PG/Redis）待启动
+> 生产环境：SQLite 单机 + gunicorn 2×gthread，镜像国内化 full-chain，详见 `docs/2026-04-21_踩坑复盘_生产上线.md`
 
 ## 任务进度
 
@@ -34,7 +35,7 @@
 - [ ] **3. 磁盘孤儿文件清理脚本** — `uploads/batches/` 下无 DB 记录的目录（比 `cleanup_orphan_items.py` 的 DB 侧清理更彻底）
 - [ ] **4. 服务器部署配置文档整理** — Docker / Playwright / `ARK_API_KEY` / `.env.example` 同步至 `CLOUD_HANDOFF.md`
 
-### 阶段六：生产化收尾 🟡 进行中（2026-04-21 起）
+### 阶段六：生产化收尾 ✅ 完成（2026-04-21 晚间生产上线 http://124.221.23.173:5000/）
 > 目标：腾讯云生产部署前把所有"临时绕过"闭环。用户 D4 指令（2026-04-21）：
 > **"文档先锁住技术债范围，不让它扩大。排期可以延后，但不能当成'不要做'。"**
 
@@ -75,10 +76,41 @@
 - 决策依赖：用户确认生产 DB 里 `user_id IS NULL` 的行是哪些（0 条 / 有历史 / 属于哪个早期 admin），本地 dry-run 通过后再跑
 
 **其他阶段六待办**：
-- [ ] 生产环境 secrets 生成：`python scripts/generate_secrets.py --fmt env` → 填入 `.env`
-- [ ] `docker-compose.yml`（prod）首次启动 smoke：db healthcheck 绿 + redis healthcheck 绿 + web 能连上
-- [ ] 多用户并发 E2E：两账号同时跑 HTML 批次 + 精修，验证无跨用户污染 + 跨 worker WS 推送
-- [ ] `DEPLOYMENT.md`：腾讯云首次部署 + 滚动升级 + 回滚流程
+- [x] ~~生产环境 secrets 生成~~（2026-04-21 部署时直接 admin 改密 + 生成 FERNET_KEY/SECRET_KEY 填 .env）
+- [x] ~~`docker-compose.yml`（prod）首次启动 smoke~~（2026-04-21 web 容器 Up，HTTP 200，logs 无 traceback）
+- [ ] 多用户并发 E2E：两账号同时跑 HTML 批次 + 精修，验证无跨用户污染 + 跨 worker WS 推送（**单机 SQLite 下跨 worker 部分推迟到 PG/Redis 上线**）
+- [ ] `DEPLOYMENT.md`：腾讯云首次部署 + 滚动升级 + 回滚流程（**已先落在 `docs/2026-04-21_踩坑复盘_生产上线.md`，后续整理成正式 DEPLOYMENT.md**）
+
+**2026-04-21 上线补充**：
+- [x] 镜像构建国内化全链路：apt 腾讯云 + pip 腾讯云 + playwright npmmirror CfT + rembg ghfast.top（4 次 Dockerfile 迭代才稳，见踩坑文档）
+- [x] SSH 免密 + `~/.ssh/config` 别名 `tencent-prod`（踩坑：authorized_keys 前缀注释导致整行失效，已立"SSH 排查三板斧"铁律）
+- [x] Alembic 接管老 SQLite：`flask db stamp a73747e2b475`（`db.create_all` 已建表 + `alembic_version` 空 → stamp 而非 upgrade）
+- [x] admin 密码重置为 20 字符随机强密码，only-show-once 已交付用户入密码管理器
+- [x] 生产 `.env` 配置：`DATABASE_URL=sqlite:///wubaoyun.db` / `FLASK_ENV=production` / `PUBSUB_BACKEND=memory` / `AI_BG_MODE=cache`
+
+### 阶段七：硬件升级 + PG/Redis 全栈 🔜 待启动
+
+触发条件：用户数/并发需求上来、或 2C2G 出现明显 OOM / 响应变慢。
+
+- [ ] **机器升级 4C8G 起**（当前 2C2G 跑 2 workers + rembg 模型加载偶发内存紧张）
+- [ ] **Postgres 接入**：
+  - `.env` 改 `DATABASE_URL=postgresql://xiaoxi:<pwd>@db:5432/xiaoxi`
+  - `docker compose --profile full up -d`
+  - `python scripts/migrate_sqlite_to_pg.py --commit` 把现有 SQLite 数据迁移
+  - `flask db upgrade`（`with_for_update(skip_locked=True)` 这时才真正跨 worker 生效）
+- [ ] **Redis 接入**：
+  - `.env` 改 `PUBSUB_BACKEND=redis` + `REDIS_URL=redis://:<pwd>@redis:6379/0`
+  - 跨 worker WebSocket pub/sub 打通（当前 memory backend 单 worker 可用，多 worker 推送会丢）
+- [ ] **sshd 安全收紧** ⚠️：
+  - `PasswordAuthentication no` + `PermitRootLogin prohibit-password`
+  - 操作风险：改完重启 ssh 可能把自己锁门外。规程：保持一个活 ssh 会话不关，在另一个会话里改 + 重启 + 新开验证，失败就回改
+  - 当前状态：密钥登录已 work，密码通道仍开着，属"不紧急但必须做"
+- [ ] **`db.create_all()` 生产环境兜底精简**：
+  - app.py 启动时的 `db.create_all()` 仅保留 `FLASK_ENV=development` 分支
+  - 生产走纯 Alembic，防止未来加字段时两边都想创建导致冲突
+- [ ] **备份自动化**：cron daily SQLite/PG + uploads tar.gz → 腾讯云 COS（当前只有 `/root/backup_20260421/` 这一次手工备份）
+- [ ] **日志 + 监控**：至少加 logrotate（docker compose logs 不清会占磁盘），锦上添花是 promtail/loki/grafana
+- [ ] **docker-compose.full.yml override**：把 `web.depends_on` 补回来（当前主 compose 文件因 Compose V2 profile gating 限制移除了 depends_on，full 部署需要再 override）
 
 ## 已确认的决策
 - [2026-04-20] 任务1 暂不加 `@login_required` + `@csrf.exempt`，方便 curl/Postman 直测；任务4 整链路打通后补回。
@@ -242,13 +274,94 @@ with app.app_context():
 - [ ] 有硬上限 env var？`compute_estimate()` 接入了吗？
 - [ ] 失败场景的提示是否让用户能自己修复（而不只是 "error 500"）？
 
+### 中国部署铁律 (2026-04-21 生产上线踩坑 4 次后立碑)
+
+**详细案例**见 `docs/2026-04-21_踩坑复盘_生产上线.md` → "坑 1：Playwright chromium 首次安装卡死"。
+
+**铁律 1 — 凡是默认从 Azure/Google/AWS 下载的依赖，必须额外配国内镜像**：
+pypi/npm 镜像只管 Python 包 / Node 包，**二进制资源走独立下载链路**。典型一把梭：
+- `playwright install` → chromium 从 Azure CDN → 中国大陆大文件 TLS 握手 + backoff 死循环（40 分钟零字节）
+- `puppeteer install` → 同理，`PUPPETEER_DOWNLOAD_HOST` 必配
+- `electron-builder` → ELECTRON_MIRROR
+- `chromedriver-manager` → `CHROMEDRIVER_CDNURL`
+- `selenium-manager` → 现在还没好用的大陆镜像
+- rembg `.onnx` model → 走 `ghfast.top` 前置（已在 Dockerfile 实装）
+
+**判定规则**：看 pip/npm 这个包的 install 脚本里有没有"再触发第二次下载"的代码（hook / post-install script / 启动时懒加载）。有 → 必须配二级镜像。
+
+**铁律 2 — 单 DOWNLOAD_HOST 不一定覆盖所有二进制**：
+playwright 1.58+ 把 Chrome 分发改用 Chrome for Testing，URL 结构 `{HOST}/{chrome_version}/linux64/chrome-linux64.zip`；但 ffmpeg 仍是老结构 `{HOST}/builds/ffmpeg/{rev}/ffmpeg-linux.zip`。
+npmmirror 把这两套东西存在不同前缀下（`/binaries/chrome-for-testing/` vs `/binaries/playwright/builds/ffmpeg/`），**单个 HOST 覆盖不了两个**。
+→ 必须拆两阶段 RUN，每次改 env。顺序铁律：**先装小+独立的（ffmpeg 2MB），后装大+批量的（chromium 167MB）**。反过来大文件先跑、小文件炸掉会把大文件的 `INSTALLATION_COMPLETE` marker 一起带走，第二阶段会重下。
+
+**铁律 3 — 失败快 > 失败慢**：
+下载卡住 **90 秒没进度 + `netstat | grep ESTABLISHED` 外部 TCP=0** → 立刻 kill 换镜像。别等"可能它会好"。实测对比：
+- 等 Azure 救 → 40 分钟零字节
+- 换 npmmirror → 10 秒 HTTP 404（说明路径错，立刻修）
+- 修好后 → 200 秒下完 167MB
+
+失败快时间预算是正确路径的 10%，值得。
+
+### Alembic 接管 `db.create_all()` 老 DB 铁律 (2026-04-21 生产首次 migration 踩坑)
+
+**症状触发**：新镜像跑 `flask db upgrade` 遭遇 `sqlite3.OperationalError: table users already exists`，同时 `alembic_version` 表存在但 `version_num` 为空。
+
+**根因**：老代码启动时 `db.create_all()` 已经把所有 model 建过表；新代码切到 Alembic 管 schema，baseline migration 又要从零 `create_table('users', ...)` → 表已存在 → 炸。`alembic_version` 表本身是 Alembic 初始化自动建的"容器"，**里面的 version_num 才是"哪个 migration 已跑"的记录**。空 = "我什么都没跑过"。
+
+**修法 — `flask db stamp <baseline_revision>`**：
+告诉 Alembic "这个版本号当作已应用、不要真跑 SQL"。补的是**记录**不是**表**。前提是：`inspect(db.engine).get_table_names()` 返回的表集合 == baseline migration 里 `op.create_table(...)` 的集合（通常成立，因为两者都从同一个 models.py 出）。
+
+**铁律 4 — 从 `create_all` 过渡到 Alembic 的第一次部署，预检 → 决策**：
+1. `inspect(db.engine).get_table_names()` → 列出所有表
+2. `SELECT version_num FROM alembic_version` → 看是否为空
+3. 对比 `migrations/versions/` 的 baseline migration → 两边表集合
+4. 一致 → `flask db stamp baseline`；不一致 → 手工写 conditional migration 或先 ALTER
+
+**铁律 5 — 生产分支尽快把 `db.create_all()` 从启动流程砍掉**：
+未来 models 加字段时 Alembic 和 `create_all` 会打架（哪个先跑哪个赢不确定），debug 成本高。
+当前 app.py 保留 `db.create_all()` 做 SQLite 开发兜底 —— 阶段七 PG 上线后，加 `FLASK_ENV != 'development'` 判断把生产路径关闭。
+
+### SSH 免密配置排查三板斧 (2026-04-21 首次登录失败后立碑)
+
+**详细案例**见 `docs/2026-04-21_踩坑复盘_生产上线.md` → "坑 3：SSH 免密卡在 authorized_keys 格式错误"。
+
+**症状**：Permission denied (publickey)，但公钥已贴、`chmod 600` 到位、`sshd -T` 显示 `pubkeyauthentication yes`。
+**根因**：Web 终端 heredoc 粘贴时把提示文字混进了 authorized_keys 行首 → 整行开头不是合法 key 类型 → sshd 拒识别。
+
+**铁律 6 — 配 SSH 免密登录失败，按这三条查：**
+
+1. **`cat authorized_keys` 看 raw bytes**：
+   公钥必须**一整行**（不能折行），开头必须严格匹配 `ssh-rsa` / `ssh-ed25519` / `ecdsa-sha2-*` / `sk-ssh-*`。任何前缀（注释 / 提示文字 / BOM）都会让整行失效。**Web 终端粘贴最容易带脏字符** —— 用 `echo 'ssh-ed25519 AAAA... user@host' > ~/.ssh/authorized_keys` 单引号强制写入，绕开 heredoc 变量展开和续行问题。
+
+2. **`sshd -T | grep -E 'publickey|authorized'`**：
+   确认 sshd **当前生效值**（不是 `/etc/ssh/sshd_config` 注释掉的配置）是否启用 publickey、authorized_keys 路径是否如预期。`sshd -T` 比读 config 文件靠谱一万倍。
+
+3. **`ls -la ~/.ssh/` + `ls -la ~/`**：
+   权限必须 `700 ~/.ssh`、`600 authorized_keys`、`~/` 的 owner 必须是目标用户。任何一处 world-writable 都会被 sshd 拒绝（`StrictModes yes` 默认开）。
+
+**铁律 7 — 第一次配完立刻写 `~/.ssh/config` 起别名**：
+```
+Host tencent-prod
+    HostName 124.221.23.173
+    User root
+    IdentityFile ~/.ssh/id_ed25519
+    ServerAliveInterval 60
+```
+之后所有命令走别名。Windows 下用 PowerShell `Out-File -Encoding ascii` 避免 UTF-8 BOM 毒化 config 文件。
+
 ## 用户偏好
 - 用户能看 JSON 字段对错，但不直接读 Python 代码 → 验证步骤要写"预期看到 X"而不是"运行什么测试"
 - 用户用 curl 验证（但需要登录态时改用 requests.Session 脚本，curl + CSRF 在 PowerShell 里太啰嗦）
 - 用户喜欢 4 选 1 的反馈模板（OK/不对/方向错/跳过）
 
 ## 待解决问题
-（暂无）
+
+### 延后到阶段七（2026-04-21 生产上线时主动延后，不属于"忘记做"）
+
+- **sshd PasswordAuthentication 收紧**：当前 `PasswordAuthentication yes`，密钥登录已 work 但密码通道仍开着。改动窗口需要在白天 + 保持一个 ssh 会话活着防锁门。详见 `docs/2026-04-21_踩坑复盘_生产上线.md` → "坑 4 (遗留)"。
+- **PG + Redis 上大机**：当前 2C2G 撑不起全栈，SQLite + memory pub/sub 单机已满足个人测试。升 4C8G 后执行 `docker compose --profile full up -d` + `scripts/migrate_sqlite_to_pg.py`。
+- **`db.create_all()` 生产路径关闭**：app.py 启动时的 `db.create_all()` 仅保留 `FLASK_ENV=development` 分支，防止未来 migration 和 `create_all` 打架。
+- **DEPLOYMENT.md 正式整理**：当前部署经验落在 `docs/2026-04-21_踩坑复盘_生产上线.md`，后续整理成带"首次部署 + 滚动升级 + 回滚"三部分的独立文档。
 
 ---
 
