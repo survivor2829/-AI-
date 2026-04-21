@@ -78,8 +78,8 @@ RUN pip config set global.index-url https://mirrors.cloud.tencent.com/pypi/simpl
 #      → npmmirror 在 /binaries/chrome-for-testing/
 #   2) FFmpeg (playwright CDN 老路径): HOST/builds/ffmpeg/{rev}/ffmpeg-linux.zip
 #      → npmmirror 在 /binaries/playwright/builds/ffmpeg/
-# 所以必须分两次调 playwright install, 每次换 HOST. 第一次下完 chrome+shell 即
-# 写入 INSTALLATION_COMPLETE 标记, 第二次只会补 ffmpeg 不会重下 chrome.
+# 所以必须分两次调 playwright install, 每次换 HOST.
+# 顺序 + marker 机制见下方第二段注释 (ffmpeg 先装 chromium 后装, 反了会 fail).
 
 # 系统依赖已在上一步装好，这里只拉浏览器二进制 — 两阶段顺序关键:
 # 先装 ffmpeg (2M, 快), 写入 marker; 再装 chromium 时 playwright 看到 ffmpeg 已完成,

@@ -4,10 +4,16 @@
 .omc
 __pycache__
 *.pyc
+.pytest_cache/
+.venv/
+venv/
 output/
 uploads/
 static/uploads/
 static/outputs/
+static/cache/
+instance/
+*.log
 PROJECT_ARCHITECTURE.md
 *.md
 !requirements.txt
