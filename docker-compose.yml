@@ -68,6 +68,12 @@ services:
     # 阶段七用 docker-compose.full.yml override 文件把 depends_on 补回去.
     ports:
       - "${WEB_PORT:-5000}:5000"
+    # 2026-04-21 OOM 事故修复: 显式配 mem_limit + memswap_limit,
+    # 不靠 docker 默认(默认 mem_limit = 主机 RAM + memswap_limit = mem_limit → 禁 swap).
+    # 1400m RAM + 2000m swap = 3400m 有效内存; 留 200MB 给主机 sshd/journald.
+    # 升 4C8G 后这俩要同步调 (阶段七踩坑文档会写).
+    mem_limit: 1400m
+    memswap_limit: 3400m
     env_file:
       - .env
     environment:
@@ -75,6 +81,12 @@ services:
       # 关键默认值 — .env 里没配就走这里. 单机最小部署默认 memory, full profile
       # 启动时 .env 应显式设 PUBSUB_BACKEND=redis (否则内存 pub/sub 跨不了进程)
       PUBSUB_BACKEND: ${PUBSUB_BACKEND:-memory}
+      # 2026-04-21 OOM 事故修复: 并发池默认 3 + 2C2G + docker 无 swap → 必 OOM.
+      # 紧急降到 1 (串行). 升 4C8G 后阶段七调回 3.
+      # 非机密部署参数, 故放 compose.yml 而非 .env (方便 git 审计/回滚).
+      BATCH_POOL_SIZE: "1"
+      SINGLE_POOL_SIZE: "1"
+      REFINE_POOL_SIZE: "1"
     volumes:
       # 用户产物持久化 — named volume 在 /var/lib/docker/volumes/ 下
       - uploads:/app/static/uploads
