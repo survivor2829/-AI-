@@ -847,7 +847,7 @@
             ? `<img class="thumb" src="${p.main_image_path}" alt="">`
             : '<span class="muted">无图</span>'}</td>
           <td><strong>${safeName}</strong></td>
-          <td class="status-cell"><span class="badge pending">pending</span></td>
+          <td class="status-cell"><span class="stage-pill stage-pending">⏳ 等待中</span></td>
           <td class="preview-cell"><span class="muted">—</span></td>
           <td class="refine-cell">
             <div class="refine-ctrl">
@@ -1114,26 +1114,190 @@
     if (lbl) lbl.textContent = label;
   }
 
+  // ═══════════════════════════════════════════════════════
+  // 任务2 (2026-04-22): WebSocket 重连 + fallback polling + catch-up
+  //   - Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s (cap)
+  //   - 重连成功后拉 /api/batch/<id>/status snapshot 补上断线期间漏的 stage
+  //   - WS 态 RECONNECTING/FAILED 时启动 polling (5s/次, 不重复启)
+  //   - tab 切后台 → Chrome throttle WS → visibilitychange 主动重连
+  // ═══════════════════════════════════════════════════════
+  const WS_MAX_DELAY = 30000;
+  let wsRetryDelay = 1000;
+  let wsRetryTimer = null;
+  let wsClosedByUs = false;
+  let pollingTimer = null;
+
   function openWS(batchId) {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = `${proto}//${location.host}/ws/batch/${batchId}`;
     setWSState('connecting', '连接中...');
     const ws = new WebSocket(url);
     session.ws = ws;
+    session.wsBatchId = batchId;
+    wsClosedByUs = false;
 
-    ws.onopen = () => setWSState('connected', '实时连接');
+    ws.onopen = () => {
+      setWSState('connected', '实时连接');
+      wsRetryDelay = 1000;              // 重连成功清零 backoff
+      stopPollingFallback();
+      fetchCatchupSnapshot(batchId);    // 主动拉 snapshot 补状态
+    };
     ws.onmessage = (ev) => {
       let evt = null;
       try { evt = JSON.parse(ev.data); } catch (_) { return; }
       handleEvent(evt);
     };
     ws.onclose = () => {
-      setWSState('disconnected', '已断开 (后台仍在跑,刷新可恢复)');
+      if (wsClosedByUs) {
+        setWSState('disconnected', '连接已关闭');
+        return;
+      }
+      // Exponential backoff 重连 + 启动 polling 兜底
+      setWSState('reconnecting', `已断开, ${Math.round(wsRetryDelay/1000)}s 后重连...`);
+      startPollingFallback(batchId);
+      if (wsRetryTimer) clearTimeout(wsRetryTimer);
+      wsRetryTimer = setTimeout(() => openWS(batchId), wsRetryDelay);
+      wsRetryDelay = Math.min(wsRetryDelay * 2, WS_MAX_DELAY);
     };
     ws.onerror = () => {
-      setWSState('disconnected', '连接错误');
+      // onerror 往往紧跟 onclose, 不单独处理; 统一由 onclose 走重连
+      console.warn('[ws] error on', batchId);
     };
   }
+
+  function closeWS() {
+    wsClosedByUs = true;
+    if (wsRetryTimer) { clearTimeout(wsRetryTimer); wsRetryTimer = null; }
+    stopPollingFallback();
+    if (session.ws) try { session.ws.close(); } catch (_) {}
+    session.ws = null;
+  }
+
+  // 重连成功后拉 snapshot, 每行 pill 按 DB current_stage 对齐
+  // (WS 断线期间如果 worker 推进了阶段, 此处一次性补齐)
+  function fetchCatchupSnapshot(batchId) {
+    fetch(`/api/batch/${encodeURIComponent(batchId)}/status`, {
+      credentials: 'same-origin',
+    }).then(r => r.ok ? r.json() : null).then(data => {
+      if (!data || !data.items) return;
+      data.items.forEach(it => {
+        // 优先用 current_stage (处理中), 其次 status (终态)
+        if (it.status === 'done') {
+          setRowStage(it.name, 'done');
+        } else if (it.status === 'failed') {
+          setRowStage(it.name, 'failed', it.error);
+        } else if (it.current_stage) {
+          setRowStage(it.name, it.current_stage);
+        } else if (it.status === 'pending') {
+          setRowStage(it.name, 'pending');
+        }
+      });
+    }).catch(e => console.warn('[catchup] failed', e));
+  }
+
+  // Polling fallback: WS 断线期间 5s 拉一次 /status, 补 pill + 进度
+  function startPollingFallback(batchId) {
+    if (pollingTimer) return;  // 已在跑
+    const tick = () => {
+      fetch(`/api/batch/${encodeURIComponent(batchId)}/status`, {
+        credentials: 'same-origin',
+      }).then(r => r.ok ? r.json() : null).then(data => {
+        if (!data || !data.items) return;
+        data.items.forEach(it => {
+          if (it.status === 'done') setRowStage(it.name, 'done');
+          else if (it.status === 'failed') setRowStage(it.name, 'failed', it.error);
+          else if (it.current_stage) setRowStage(it.name, it.current_stage);
+        });
+      }).catch(e => console.warn('[polling] failed', e));
+    };
+    pollingTimer = setInterval(tick, 5000);
+    tick();  // 立即跑一次不等 5s
+  }
+  function stopPollingFallback() {
+    if (pollingTimer) { clearInterval(pollingTimer); pollingTimer = null; }
+  }
+
+  // tab 切回前台 → 如果 ws 不是 OPEN, 主动重连 (Chrome 后台会 throttle WS)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!session.wsBatchId) return;
+    const ws = session.ws;
+    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+      wsRetryDelay = 1000;  // 前台回来立即重试
+      if (wsRetryTimer) clearTimeout(wsRetryTimer);
+      openWS(session.wsBatchId);
+    }
+  });
+
+  // ── 任务2: 阶段 pill 标签 + 切换函数 ──────────────────
+  const STAGE_LABELS = {
+    pending:   '⏳ 等待中',
+    parsing:   '🧠 AI 解析中...',
+    cutting:   '✂️ 正在抠图...',
+    rendering: '🎨 合成设计...',
+    capturing: '📸 生成图片...',
+    done:      '✅ 完成',
+    failed:    '❌ 失败',
+  };
+  const STAGE_VARIANTS = ['pending', 'parsing', 'cutting', 'rendering', 'capturing', 'done', 'failed'];
+
+  function setRowStage(name, stage, errMsg) {
+    if (!name || !STAGE_LABELS[stage]) return;
+    const row = findRow(name);
+    if (!row) return;
+    const cell = row.querySelector('.status-cell');
+    if (!cell) return;
+    let pill = cell.querySelector('.stage-pill');
+    if (!pill) {
+      pill = document.createElement('span');
+      pill.className = 'stage-pill';
+      cell.innerHTML = '';
+      cell.appendChild(pill);
+    }
+    // 清旧 variant, 加新
+    STAGE_VARIANTS.forEach(v => pill.classList.remove(`stage-${v}`));
+    pill.classList.add(`stage-${stage}`);
+    pill.textContent = STAGE_LABELS[stage];
+    // failed 态: hover 显示错误详情
+    if (stage === 'failed' && errMsg) {
+      pill.setAttribute('title', String(errMsg).slice(0, 200));
+    } else {
+      pill.removeAttribute('title');
+    }
+  }
+
+  // ── 任务2: Toast 通知 (挂到 body, z-index: 300) ───────
+  // kind: 'success' | 'warning' | 'error' | 'info'
+  // opts.sticky: true → 不自动消失, 需要用户点关闭按钮
+  function showToast(kind, title, msg, opts) {
+    opts = opts || {};
+    const icons = { success: '✅', warning: '⚠️', error: '❌', info: 'ℹ️' };
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${kind}`;
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
+    toast.innerHTML = `
+      <span class="toast-icon">${icons[kind] || icons.info}</span>
+      <div class="toast-body">
+        <strong class="toast-title">${escapeHtml(title || '')}</strong>
+        <span class="toast-msg">${escapeHtml(msg || '')}</span>
+      </div>
+      <button type="button" class="toast-close" aria-label="关闭">×</button>
+    `;
+    const close = () => {
+      toast.classList.add('closing');
+      setTimeout(() => toast.remove(), 250);  // 等 toastOut 动画
+    };
+    toast.querySelector('.toast-close').addEventListener('click', close);
+    document.body.appendChild(toast);
+    if (!opts.sticky) {
+      setTimeout(close, 4000);
+    }
+    return toast;
+  }
+  // 暴露给 Playwright 测试脚本和调试
+  window.__showToast = showToast;
+  window.__setRowStage = setRowStage;
 
   function handleEvent(evt) {
     if (!evt || !evt.type) return;
@@ -1205,8 +1369,27 @@
     if (evt.type === 'product') {
       updateProductRow(evt.name, evt.status, evt.error, evt.result);
     }
+    // 任务2 (2026-04-22): 实时阶段 pill 事件 — 每 stage 进入时触发
+    if (evt.type === 'stage') {
+      setRowStage(evt.name, evt.stage);
+    }
     if (evt.type === 'batch_complete') {
       setStatus('批次全部完成', 'success');
+      // 任务2: toast 通知 (4s 自动消失), 失败数 > 0 时用 warning variant 且不自动消失
+      const snap = evt.snapshot || {};
+      const total = snap.total || snap.done || 0;
+      const failed = snap.failed || 0;
+      const elapsed = snap.elapsed_sec
+        ? ` · 耗时 ${Math.floor(snap.elapsed_sec/60)} 分 ${snap.elapsed_sec%60} 秒`
+        : '';
+      if (failed > 0) {
+        showToast('warning', '批次完成 (含失败)',
+                  `完成 ${snap.done || 0}/${total} 个产品, ${failed} 个失败${elapsed}`,
+                  { sticky: true });
+      } else {
+        showToast('success', '批次完成',
+                  `${total} 个产品已全部生成${elapsed}`);
+      }
     }
   }
 
@@ -1269,13 +1452,25 @@
     const row = findRow(name);
     if (!row) return;
 
-    // 状态徽章
+    // 状态 pill (任务2: 用 stage-pill 替代旧 .badge, 按 status 推导 stage)
+    // - processing: 不动 pill (让 type='stage' 事件推进到具体 parsing/cutting/...)
+    //               除非 pill 当前还是 stage-pending (未收到任何 stage 事件) → 默认 parsing
+    // - done / failed / pending: 直接映射
     const cell = row.querySelector('.status-cell');
     if (cell) {
-      const errSpan = error
-        ? ` <span class="muted" title="${escapeHtml(error)}">⚠</span>`
-        : '';
-      cell.innerHTML = `<span class="badge ${status}">${status}</span>${errSpan}`;
+      const pill = cell.querySelector('.stage-pill');
+      if (status === 'done') {
+        setRowStage(name, 'done');
+      } else if (status === 'failed') {
+        setRowStage(name, 'failed', error);
+      } else if (status === 'processing') {
+        // 兜底: 如果 stage 事件还没到, 至少让 pill 表现"在跑"
+        if (pill && pill.classList.contains('stage-pending')) {
+          setRowStage(name, 'parsing');  // 默认进入 parsing, 下一个 stage 事件会覆盖
+        }
+      } else if (status === 'pending' && pill) {
+        setRowStage(name, 'pending');
+      }
     }
 
     // done → 渲染预览缩略 + 下载HTML版按钮 + 解锁勾选框

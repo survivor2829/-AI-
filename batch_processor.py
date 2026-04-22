@@ -41,6 +41,40 @@ import traceback
 from pathlib import Path
 
 
+def _publish_stage(scope_id: str, name: str, stage: str) -> None:
+    """任务2 (2026-04-22): 发 WS stage 事件 + 同步 BatchItem.current_stage.
+
+    - WS: 广播 {type:'stage', name, stage, ts} 给 /ws/batch/<scope_id> 的订阅者
+    - DB: UPDATE batch_items.current_stage 让 WS 断线重连时能 catch-up
+    - 失败策略: traceback 打印但不抛, worker 主流程继续 (与 _batch_db_sync_callback 一致)
+    """
+    import time
+    ts_ms = int(time.time() * 1000)
+    try:
+        from app import app as _flask_app, db
+        from models import BatchItem, Batch
+        import batch_pubsub as batch_pubsub_mod
+
+        batch_pubsub_mod.publish(scope_id, {
+            "type": "stage",
+            "name": name,
+            "stage": stage,
+            "ts": ts_ms,
+        })
+
+        with _flask_app.app_context():
+            batch = Batch.query.filter_by(batch_id=scope_id).first()
+            if batch is not None:
+                BatchItem.query.filter_by(batch_pk=batch.id, name=name).update(
+                    {"current_stage": stage}
+                )
+                db.session.commit()
+    except Exception as e:
+        print(f"[stage-publish] {scope_id}/{name} stage={stage} failed: {e}",
+              flush=True)
+        traceback.print_exc()
+
+
 def _resolve_path(url_or_path: str, base_dir: Path) -> Path:
     """把 URL 形式的 /uploads/batches/.../foo.jpg 转成绝对 Path。
 
@@ -184,6 +218,7 @@ def _render_product_preview(
         preview_html_path.write_text(html, encoding="utf-8")
         print(f"[batch_processor] {scope_id}/{name} → preview.html 已落盘",
               flush=True)
+        _publish_stage(scope_id, name, "capturing")  # 任务2 stage 事件 (进 Playwright 截图阶段)
 
         # 4) Playwright 截图 → preview.png
         preview_png_path = product_dir / "preview.png"
@@ -266,6 +301,7 @@ def process_one_product(scope_id: str, payload: dict, *, api_key: str) -> dict:
 
     # ── 1) DeepSeek 解析（同步阻塞 5–15s/次）──────────────────────
     print(f"[batch_processor] {scope_id}/{name} → DeepSeek 解析中…", flush=True)
+    _publish_stage(scope_id, name, "parsing")  # 任务2 stage 事件
     parsed = _call_deepseek_parse(desc_text, product_type=product_category, api_key=api_key)
     parsed_file = product_dir / "parsed.json"
     parsed_file.write_text(
@@ -294,6 +330,7 @@ def process_one_product(scope_id: str, payload: dict, *, api_key: str) -> dict:
         cutout_file = product_dir / "product_cut.png"
         print(f"[batch_processor] {scope_id}/{name} → rembg 抠图中…",
               flush=True)
+        _publish_stage(scope_id, name, "cutting")  # 任务2 stage 事件
         _cutout_main_image(main_path, cutout_file)
         cutout_rel = _to_url(cutout_file, BASE_DIR)
         print(f"[batch_processor] {scope_id}/{name} → product_cut.png 完成",
@@ -308,6 +345,7 @@ def process_one_product(scope_id: str, payload: dict, *, api_key: str) -> dict:
     # 用 cutout（如果有）作为产品图;没抠到就用原图。场景图等留空。
     render_main_image = cutout_rel or main_url
     print(f"[batch_processor] {scope_id}/{name} → 渲染长图中…", flush=True)
+    _publish_stage(scope_id, name, "rendering")  # 任务2 stage 事件
     preview_html_rel, preview_png_rel, render_error = _render_product_preview(
         scope_id, name, product_dir, parsed, render_main_image
     )

@@ -125,6 +125,9 @@ class BatchItem(db.Model):
     resolved_theme_id = db.Column(db.String(40), nullable=True)
     resolved_theme_matched_by = db.Column(db.String(80), nullable=True)  # 调试: 'keyword:AI' / 'fixed:tech-blue'
     # not_requested / pending / processing / done / failed
+    # 任务2 (2026-04-22): 实时阶段 pill. parsing/cutting/rendering/capturing, done/failed 时清回 null.
+    # WS 断线重连时前端从 /api/batch/<id>/status 读回此值做 catch-up.
+    current_stage = db.Column(db.String(20), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     started_at = db.Column(db.DateTime, nullable=True)
@@ -155,6 +158,7 @@ class BatchItem(db.Model):
             "ai_refine_status": self.ai_refine_status,
             "resolved_theme_id": self.resolved_theme_id,
             "resolved_theme_matched_by": self.resolved_theme_matched_by,
+            "current_stage": self.current_stage,  # 任务2: 实时阶段 pill 值 (null/parsing/cutting/rendering/capturing)
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,

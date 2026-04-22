@@ -1437,6 +1437,9 @@ def _batch_db_sync_callback(batch_id, name, status, result, error):
                 batch.status = "running"
         elif status in ("done", "failed"):
             item.finished_at = now
+            # 任务2 (2026-04-22): 终态时清 current_stage = null, 让前端 pill
+            # 从 "capturing" 这类进行中状态切到 done/failed 的终态 UI.
+            item.current_stage = None
             if result is not None:
                 item.result = _json_mod.dumps(result, ensure_ascii=False)
                 # 任务9 (PRD F11): 把 processor 算出的主题落库,
