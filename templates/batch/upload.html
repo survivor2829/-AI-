@@ -400,58 +400,87 @@
     text-transform: uppercase; letter-spacing: 0.05em;
   }
 
-  /* 全屏 lightbox — 原生 <dialog>, a11y / focus-trap / Esc 全免费 */
+  /* 全屏 lightbox — 原生 <dialog>, a11y / focus-trap / Esc 全免费
+     2026-04-22 任务1 UX 修复: 弹窗从撑满 92vw/92vh 缩到 85vw/88vh,
+     给图外围留呼吸感 + 关闭按钮贴弹窗右上角 + 响应式 <768px → 95vw.
+     动画时长 220→180ms (用户说的 150-200ms 区间). 点击背景/ESC 关闭不变. */
   #lightboxDlg {
     padding: 0; border: none; background: transparent;
-    max-width: 92vw; max-height: 92vh; width: auto;
+    max-width: 85vw; max-height: 88vh; width: auto;
     overflow: visible;
+    opacity: 1;
+    transition: opacity 180ms ease-out;
   }
+  #lightboxDlg.closing { opacity: 0; }
   #lightboxDlg::backdrop {
-    background: rgba(0,0,0,0.62);
+    background: rgba(0,0,0,0.78);
     backdrop-filter: blur(20px) saturate(1.2);
     -webkit-backdrop-filter: blur(20px) saturate(1.2);
-    animation: lbBackdropIn 220ms ease-out;
+    animation: lbBackdropIn 180ms ease-out;
   }
-  #lightboxDlg[open] { animation: lbCardIn 220ms cubic-bezier(.2,.9,.2,1); }
+  #lightboxDlg[open] { animation: lbCardIn 180ms cubic-bezier(.2,.9,.2,1); }
   @keyframes lbBackdropIn { from { opacity: 0; } to { opacity: 1; } }
   @keyframes lbCardIn {
     from { opacity: 0; transform: scale(0.96) translateY(6px); }
     to   { opacity: 1; transform: scale(1) translateY(0); }
   }
   #lightboxDlg .lb-scroll {
-    max-height: 92vh; overflow-y: auto;
-    border-radius: var(--radius-md);
-    box-shadow: 0 24px 64px rgba(0,0,0,0.55);
+    max-height: 88vh; overflow-y: auto;
+    border-radius: var(--radius-lg);       /* 12px, design-token */
+    box-shadow: 0 28px 72px rgba(0,0,0,0.55),
+                0 0 0 1px rgba(255,255,255,0.04);  /* 加极细 hairline 让白卡不贴死黑 */
     background: #fff;
+    padding: var(--space-4);               /* 16px 呼吸感, 图片不再贴边 */
     -webkit-overflow-scrolling: touch;
   }
   #lightboxDlg .lb-scroll img {
-    display: block; max-width: 92vw; height: auto;
+    display: block;
+    max-width: 100%;                       /* 父级 .lb-scroll 已收了 85vw, img 自适应 */
+    height: auto;
+    object-fit: contain;                   /* 明示比例保持 */
+    border-radius: var(--radius-md);       /* 8px 和白卡内层呼应 */
   }
   #lightboxDlg .lb-close {
-    position: fixed; top: 18px; right: 22px;
-    width: 38px; height: 38px; border-radius: 50%;
-    background: rgba(255,255,255,0.14);
-    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255,255,255,0.22);
-    color: #fff; font-size: 22px; line-height: 1;
+    position: absolute;                    /* 相对 dialog 自身, 随弹窗尺寸一起动 */
+    top: -16px; right: -16px;              /* 贴弹窗外沿右上角, 视觉悬浮 */
+    width: 40px; height: 40px; border-radius: 50%;
+    background: rgba(255,255,255,0.16);
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    border: 1px solid rgba(255,255,255,0.28);
+    color: #fff; font-size: 22px; font-weight: 300; line-height: 1;
     cursor: pointer; z-index: 2;
-    transition: background 0.15s, transform 0.15s;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+    transition: background var(--transition-fast),
+                transform var(--transition-fast),
+                box-shadow var(--transition-fast);
   }
   #lightboxDlg .lb-close:hover {
-    background: rgba(255,255,255,0.28); transform: scale(1.06);
+    background: rgba(255,255,255,0.32);
+    transform: scale(1.08);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.45);
+  }
+  #lightboxDlg .lb-close:focus-visible {
+    outline: 2px solid rgba(255,255,255,0.55);
+    outline-offset: 2px;
   }
   #lightboxDlg .lb-caption {
     position: fixed; left: 50%; transform: translateX(-50%);
-    bottom: 22px; z-index: 2;
-    padding: 6px 14px; border-radius: var(--radius-full);
-    background: rgba(0,0,0,0.42); color: #fff;
-    font-size: 12px; letter-spacing: 0.02em;
-    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    bottom: 24px; z-index: 2;
+    padding: 8px 16px; border-radius: var(--radius-full);
+    background: rgba(0,0,0,0.55); color: #fff;
+    font-size: 13px; letter-spacing: 0.02em;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     white-space: nowrap; max-width: 80vw;
     overflow: hidden; text-overflow: ellipsis;
   }
   #lightboxDlg .lb-caption:empty { display: none; }
+  /* 响应式: 手机屏 <768px 放宽到 95vw, close 按钮回到内侧 (避免被边缘遮) */
+  @media (max-width: 768px) {
+    #lightboxDlg { max-width: 95vw; max-height: 92vh; }
+    #lightboxDlg .lb-scroll { max-height: 92vh; padding: var(--space-2); }
+    #lightboxDlg .lb-close { top: 10px; right: 10px; }
+  }
 
   /* ── 任务10: 费用预估弹窗 (PRD F6) ─────────────────────────────── */
   .modal-mask {
@@ -1503,6 +1532,16 @@
   }
 
   // ── Lightbox 大图预览 (原生 <dialog>, Esc / focus-trap / a11y 免费) ──
+  // 2026-04-22 任务1: 加 closeLightbox() 带 fade out 过渡,
+  // .closing class + 180ms transition 之后才真正 dlg.close() 卸载 backdrop.
+  function closeLightbox(dlg) {
+    if (!dlg || !dlg.open) return;
+    dlg.classList.add('closing');
+    setTimeout(() => {
+      dlg.classList.remove('closing');
+      dlg.close();
+    }, 180);
+  }
   function ensureLightboxDlg() {
     let dlg = document.getElementById('lightboxDlg');
     if (!dlg) {
@@ -1514,16 +1553,24 @@
         <div class="lb-caption"></div>
       `;
       // 点击灰色背景 (dialog 容器本身)  → 关;  点击 .lb-scroll (白卡) 不关
+      // 原生 <dialog> 点 ::backdrop 时 e.target === dlg, 所以这一条够用
       dlg.addEventListener('click', (e) => {
-        if (e.target === dlg) dlg.close();
+        if (e.target === dlg) closeLightbox(dlg);
       });
-      dlg.querySelector('.lb-close').addEventListener('click', () => dlg.close());
+      dlg.querySelector('.lb-close').addEventListener('click', () => closeLightbox(dlg));
+      // ESC 原生 <dialog> 会触发 cancel 事件 → 默认行为是立即 close (硬切).
+      // 我们拦下来走 fade out 过渡, 行为和按钮 / 点背景一致.
+      dlg.addEventListener('cancel', (e) => {
+        e.preventDefault();
+        closeLightbox(dlg);
+      });
       document.body.appendChild(dlg);
     }
     return dlg;
   }
   function openLightbox(src, caption) {
     const dlg = ensureLightboxDlg();
+    dlg.classList.remove('closing');       // 防止重复打开时残留 .closing
     dlg.querySelector('img').src = src;
     dlg.querySelector('.lb-caption').textContent = caption || '';
     dlg.querySelector('.lb-scroll').scrollTop = 0;
