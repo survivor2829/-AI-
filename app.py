@@ -1903,16 +1903,9 @@ _KIND_TO_FILE = {
 
 
 def _resolve_product_dir_from_result(item, batch_id: str):
-    """2026-04-22 Bug A3 (紧急3 孪生漏洞): 从 item.result JSON 里的 URL 反推磁盘
-    product_dir, 避免硬拼 UPLOAD_DIR/batches/<bid>/<name> 漏掉 zip 顶层子目录
-    (实测 "测试/" 目录导致 /api/batch/.../download 404).
-
-    优先顺序: preview_png → ai_refined_path → parsed_path → cutout_path.
-    任意一条 URL 指向的文件在磁盘上存在 → 取它的 parent 作 product_dir.
-    全都不存在 → 兜底硬拼 (可能不是真目录, 调用方再 is_dir / is_file 判断).
-
-    与紧急3 f613dd2 的 _resolve_path 一致: URL /uploads/ → 磁盘 /static/uploads/.
-    """
+    """Bug A3: 从 item.result JSON 里任意 URL 反推磁盘 product_dir.
+    同一 item 所有产物同目录, 取首个非空 URL 的 parent 即可;
+    全空时兜底硬拼 (调用方会再 is_dir/is_file 校验)."""
     try:
         result = _json_mod.loads(item.result or "{}")
     except _json_mod.JSONDecodeError:
@@ -1926,9 +1919,7 @@ def _resolve_product_dir_from_result(item, batch_id: str):
         rel = str(url).lstrip("/")
         if rel.startswith("uploads/"):
             rel = "static/" + rel
-        abs_path = BASE_DIR / rel
-        if abs_path.is_file():
-            return abs_path.parent
+        return (BASE_DIR / rel).parent
     return UPLOAD_DIR / "batches" / batch_id / item.name
 
 
@@ -3980,44 +3971,25 @@ def _match_scene_image(name):
     return url_for('static', filename=f'scene_bank/{_fallback_scene_image(key)}')
 
 
-# ═══════════════════════════════════════════════════════════════
-# 2026-04-22 Bug A1: manifest-driven scene bank 匹配 (替代老 _match_scene_image)
-#
-# 旧方案: _SCENE_IMG_ALIASES 单字段精确子串 + crc32 兜底 → scene_bank 里全是
-#   城市通用图 → "河道污染物溯源" 被哈希到 "机场.jpg" 这种语义完全无关的图.
-#
-# 新方案:
-#   1. static/scene_bank/manifest.json 标注每张图 category + 5-8 个 keywords
-#   2. _match_scene_smart: 双向子串打分 (keyword in scene_name OR scene_name in keyword)
-#      取 top 1; 零分时按 product_type 推导 category, 返回 category 首图
-#   3. _enrich_scenes_with_images 签名加 product_type 参数, 从调用方下传
-#
-# 老 _match_scene_image 保留作最终兜底 (manifest 不存在 / 加载失败).
-# Verify: scripts/verify_scene_match.py 23/23 PASS
-# ═══════════════════════════════════════════════════════════════
+# Bug A1 (2026-04-22): manifest-driven scene matching.
+# 老 _match_scene_image 保留作 manifest 缺失时的兜底 (决定性但语义错, 见 A1 commit).
 
-_SCENE_MANIFEST_CACHE: list[dict] | None = None
 _SCENE_MANIFEST_PATH = Path(__file__).parent / "static" / "scene_bank" / "manifest.json"
 
 
-def _load_scene_manifest() -> list[dict]:
-    """载入 manifest.json (单例缓存). 失败返回空 list, 让 _match_scene_smart 退回旧兜底."""
-    global _SCENE_MANIFEST_CACHE
-    if _SCENE_MANIFEST_CACHE is not None:
-        return _SCENE_MANIFEST_CACHE
+@lru_cache(maxsize=1)
+def _load_scene_manifest() -> tuple[dict, ...]:
+    """载入 manifest.json (lru_cache 单例, 线程安全). 失败返回空元组让调用方走兜底."""
     try:
         import json as _json
-        text = _SCENE_MANIFEST_PATH.read_text(encoding="utf-8")
-        data = _json.loads(text)
-        _SCENE_MANIFEST_CACHE = data if isinstance(data, list) else []
+        data = _json.loads(_SCENE_MANIFEST_PATH.read_text(encoding="utf-8"))
+        return tuple(data) if isinstance(data, list) else ()
     except Exception as e:
         print(f"[scene-manifest] 加载失败, 退回旧 _match_scene_image: {e}", flush=True)
-        _SCENE_MANIFEST_CACHE = []
-    return _SCENE_MANIFEST_CACHE
+        return ()
 
 
 def _category_for_product(product_type: str) -> str:
-    """product_type → scene_bank category (5 大类之一)."""
     pt = (product_type or "").lower()
     if any(k in pt for k in ("水面", "水上", "水质", "无人船", "水下")):
         return "water"
@@ -4031,30 +4003,23 @@ def _category_for_product(product_type: str) -> str:
 
 
 def _match_scene_smart(scene_name: str, product_type: str = "") -> str:
-    """新 scene → 图 URL 匹配: manifest 双向子串打分 → 零分按 category 兜底."""
+    """scene → 图 URL: manifest 双向子串打分 → 零分按 category 兜底."""
     manifest = _load_scene_manifest()
     if not manifest:
-        # manifest 缺失 → 退回老实现
         return _match_scene_image(scene_name)
     key = (scene_name or "").strip()
-    if not key:
-        cat = _category_for_product(product_type)
-        entry = next((e for e in manifest if e.get("category") == cat), manifest[0])
-        return url_for('static', filename=f'scene_bank/{entry["file"]}')
-    best = (manifest[0], 0)
-    for entry in manifest:
-        score = 0
-        for kw in entry.get("keywords") or []:
-            if kw and (kw in key or key in kw):
-                score += 1
-        if score > best[1]:
-            best = (entry, score)
-    entry, score = best
-    if score == 0:
+    best_score, best_entry = 0, None
+    if key:
+        for entry in manifest:
+            score = sum(1 for kw in (entry.get("keywords") or [])
+                        if kw and (kw in key or key in kw))
+            if score > best_score:
+                best_score, best_entry = score, entry
+    if best_score == 0:
         # 零分 → 按 product_type 推导 category 兜底 (不走老 crc32 随机)
         cat = _category_for_product(product_type)
-        entry = next((e for e in manifest if e.get("category") == cat), manifest[0])
-    return url_for('static', filename=f'scene_bank/{entry["file"]}')
+        best_entry = next((e for e in manifest if e.get("category") == cat), manifest[0])
+    return url_for('static', filename=f'scene_bank/{best_entry["file"]}')
 
 
 def _enrich_scenes_with_images(scenes, product_type: str = ""):

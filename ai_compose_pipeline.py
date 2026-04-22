@@ -26,6 +26,16 @@ from playwright.sync_api import sync_playwright
 
 
 BASE = Path(__file__).parent
+
+# 一次 re.sub 替代 6 次 str.replace, 同时覆盖 src=" / src=' / href=" 三种 + 两个前缀.
+# 紧急3 UPLOAD_DIR 迁移后 /uploads/ 磁盘实际在 /app/static/uploads/
+import re as _re
+_BASE_URL = str(BASE).replace("\\", "/")
+_PLAYWRIGHT_URL_RE = _re.compile(r'''(src|href)=(["'])/(static/|uploads/)''')
+def _playwright_url_sub(m):
+    attr, quote, prefix = m.group(1), m.group(2), m.group(3)
+    disk = "static/uploads/" if prefix == "uploads/" else "static/"
+    return f'{attr}={quote}file:///{_BASE_URL}/{disk}'
 TPL_DIR = BASE / "templates" / "ai_compose"
 DEFAULT_REGISTRY_PATH = TPL_DIR / "_registry.json"
 
@@ -67,26 +77,9 @@ def _render_one(page, env, registry, screen_type, ctx, out_dir):
         raise ValueError(f"{screen_type}: 缺少必填字段 {missing}")
 
     html = env.get_template(template).render(**full_ctx)
-    # 2026-04-22 Bug A2 (紧急3 孪生漏洞): Playwright 用 file:// 协议加载本地 HTML,
-    # 模板里 <img src="/uploads/..."> 或 <img src="/static/..."> 会被解析为磁盘根目录
-    # /uploads/... → 不存在 → 图片 404 → AI 精修合成图里产品主图 / 场景图全缺失.
-    # batch_processor._render_product_preview 在紧急3 (commit f613dd2) 修过同样问题,
-    # 但 ai_compose_pipeline 漏修. 同套 URL→disk 映射规则:
-    #   /static/  → BASE/static/
-    #   /uploads/ → BASE/static/uploads/ (紧急3 UPLOAD_DIR 迁移后的磁盘实际位置)
-    base_url = str(BASE).replace("\\", "/")
-    _URL_TO_DISK = [
-        ("/static/",  "/static/"),
-        ("/uploads/", "/static/uploads/"),
-    ]
-    for url_prefix, disk_prefix in _URL_TO_DISK:
-        html = html.replace(
-            f'src="{url_prefix}',  f'src="file:///{base_url}{disk_prefix}'
-        ).replace(
-            f"src='{url_prefix}",  f"src='file:///{base_url}{disk_prefix}"
-        ).replace(
-            f'href="{url_prefix}', f'href="file:///{base_url}{disk_prefix}'
-        )
+    # URL → file:// for Playwright (同 batch_processor._render_product_preview,
+    # 紧急3 f613dd2 孪生漏洞 A2). /uploads/ 磁盘在 static/uploads/.
+    html = _PLAYWRIGHT_URL_RE.sub(_playwright_url_sub, html)
     tmp = out_dir / f"_{screen_type}_render.html"
     tmp.write_text(html, encoding="utf-8")
 
