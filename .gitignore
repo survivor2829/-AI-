@@ -26,9 +26,11 @@ static/设备类/ref_*.png
 *.png
 *.jpg
 
-# 允许通用场景图片
+# 允许通用场景图片 (scene_bank 含子目录 water/pipeline/industrial/commercial)
 !static/scenes/*.jpg
 !static/scene_bank/*.jpg
+!static/scene_bank/**/*.jpg
+!static/scene_bank/manifest.json
 
 # 工具生成文件
 .omc/

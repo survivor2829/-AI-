@@ -3980,7 +3980,86 @@ def _match_scene_image(name):
     return url_for('static', filename=f'scene_bank/{_fallback_scene_image(key)}')
 
 
-def _enrich_scenes_with_images(scenes):
+# ═══════════════════════════════════════════════════════════════
+# 2026-04-22 Bug A1: manifest-driven scene bank 匹配 (替代老 _match_scene_image)
+#
+# 旧方案: _SCENE_IMG_ALIASES 单字段精确子串 + crc32 兜底 → scene_bank 里全是
+#   城市通用图 → "河道污染物溯源" 被哈希到 "机场.jpg" 这种语义完全无关的图.
+#
+# 新方案:
+#   1. static/scene_bank/manifest.json 标注每张图 category + 5-8 个 keywords
+#   2. _match_scene_smart: 双向子串打分 (keyword in scene_name OR scene_name in keyword)
+#      取 top 1; 零分时按 product_type 推导 category, 返回 category 首图
+#   3. _enrich_scenes_with_images 签名加 product_type 参数, 从调用方下传
+#
+# 老 _match_scene_image 保留作最终兜底 (manifest 不存在 / 加载失败).
+# Verify: scripts/verify_scene_match.py 23/23 PASS
+# ═══════════════════════════════════════════════════════════════
+
+_SCENE_MANIFEST_CACHE: list[dict] | None = None
+_SCENE_MANIFEST_PATH = Path(__file__).parent / "static" / "scene_bank" / "manifest.json"
+
+
+def _load_scene_manifest() -> list[dict]:
+    """载入 manifest.json (单例缓存). 失败返回空 list, 让 _match_scene_smart 退回旧兜底."""
+    global _SCENE_MANIFEST_CACHE
+    if _SCENE_MANIFEST_CACHE is not None:
+        return _SCENE_MANIFEST_CACHE
+    try:
+        import json as _json
+        text = _SCENE_MANIFEST_PATH.read_text(encoding="utf-8")
+        data = _json.loads(text)
+        _SCENE_MANIFEST_CACHE = data if isinstance(data, list) else []
+    except Exception as e:
+        print(f"[scene-manifest] 加载失败, 退回旧 _match_scene_image: {e}", flush=True)
+        _SCENE_MANIFEST_CACHE = []
+    return _SCENE_MANIFEST_CACHE
+
+
+def _category_for_product(product_type: str) -> str:
+    """product_type → scene_bank category (5 大类之一)."""
+    pt = (product_type or "").lower()
+    if any(k in pt for k in ("水面", "水上", "水质", "无人船", "水下")):
+        return "water"
+    if any(k in pt for k in ("管道", "管网", "箱涵", "下水", "排水")):
+        return "pipeline"
+    if any(k in pt for k in ("工业", "仓储", "车间", "厂房", "工厂")):
+        return "industrial"
+    if any(k in pt for k in ("商用", "办公", "商业", "商超", "酒店", "机场")):
+        return "commercial"
+    return "public"
+
+
+def _match_scene_smart(scene_name: str, product_type: str = "") -> str:
+    """新 scene → 图 URL 匹配: manifest 双向子串打分 → 零分按 category 兜底."""
+    manifest = _load_scene_manifest()
+    if not manifest:
+        # manifest 缺失 → 退回老实现
+        return _match_scene_image(scene_name)
+    key = (scene_name or "").strip()
+    if not key:
+        cat = _category_for_product(product_type)
+        entry = next((e for e in manifest if e.get("category") == cat), manifest[0])
+        return url_for('static', filename=f'scene_bank/{entry["file"]}')
+    best = (manifest[0], 0)
+    for entry in manifest:
+        score = 0
+        for kw in entry.get("keywords") or []:
+            if kw and (kw in key or key in kw):
+                score += 1
+        if score > best[1]:
+            best = (entry, score)
+    entry, score = best
+    if score == 0:
+        # 零分 → 按 product_type 推导 category 兜底 (不走老 crc32 随机)
+        cat = _category_for_product(product_type)
+        entry = next((e for e in manifest if e.get("category") == cat), manifest[0])
+    return url_for('static', filename=f'scene_bank/{entry["file"]}')
+
+
+def _enrich_scenes_with_images(scenes, product_type: str = ""):
+    """为 scenes[] 里没 image 的项填补图 URL. product_type 用于零分兜底选 category.
+    2026-04-22 改用 _match_scene_smart (老 _match_scene_image 作最终兜底)."""
     if not isinstance(scenes, list):
         return
     for s in scenes:
@@ -3988,7 +4067,8 @@ def _enrich_scenes_with_images(scenes):
             continue
         if (s.get("image") or "").strip():
             continue
-        img = _match_scene_image(s.get("name") or s.get("title") or "")
+        scene_name = s.get("name") or s.get("title") or ""
+        img = _match_scene_smart(scene_name, product_type=product_type)
         if img:
             s["image"] = img
 
@@ -4016,9 +4096,11 @@ def _clean_kpis(kpis):
     kpis.extend(cleaned)
 
 
-def _postprocess_extra_blocks(extra_blocks):
-    """对 extra_blocks 中的场景图/KPI 做一次后处理，两处提交路径复用。"""
-    _enrich_scenes_with_images(extra_blocks.get("block_h", {}).get("scenes", []))
+def _postprocess_extra_blocks(extra_blocks, product_type: str = ""):
+    """对 extra_blocks 中的场景图/KPI 做一次后处理，两处提交路径复用。
+    product_type 下传给 _enrich_scenes_with_images, 用于零分兜底选 category (Bug A1)."""
+    _enrich_scenes_with_images(extra_blocks.get("block_h", {}).get("scenes", []),
+                               product_type=product_type)
     _clean_kpis(extra_blocks.get("block_i", {}).get("kpis", []))
 
 
@@ -4231,7 +4313,7 @@ def _assemble_all_blocks(product_type, mapped_fields, images, cfg):
             except (json.JSONDecodeError, ValueError):
                 pass
 
-    _postprocess_extra_blocks(extra_blocks)
+    _postprocess_extra_blocks(extra_blocks, product_type=product_type)
 
     return {
         "product_type": product_type,
@@ -4589,7 +4671,7 @@ def build_submit_generic(product_type):
             except (json.JSONDecodeError, ValueError):
                 pass
 
-    _postprocess_extra_blocks(extra_blocks)
+    _postprocess_extra_blocks(extra_blocks, product_type=product_type)
 
     data = {
         "product_type": product_type,
