@@ -412,6 +412,11 @@
   #lightboxDlg {
     padding: 0; border: none; background: transparent;
     width: min(85vw, 1200px); max-height: 88vh;
+    /* 2026-04-22 任务1 v3: 显式 max-width 压 UA stylesheet 默认.
+       原生 <dialog>:modal 有默认 max-width: calc(100% - 6px - 2em) ≈ calc(100vw - 38px).
+       桌面屏远大于 1200 所以 UA 默认不影响, 但小屏 (<768) 的 95vw=356 会被 UA 337 截掉.
+       所以 width 和 max-width 都显式设成同一个 min() 表达式, 把 UA 挤掉. (铁律13) */
+    max-width: min(85vw, 1200px);
     overflow: visible;
     opacity: 1;
     transition: opacity 180ms ease-out;
@@ -484,7 +489,9 @@
      这里可以用 width: 95vw (不是 min) 因为小屏 95vw 必然 < 1500 img 宽,
      vw 约束一定触发, dialog 等于 95vw. close 按钮 -16px 在小屏会被切, 改 10px 内侧. */
   @media (max-width: 768px) {
-    #lightboxDlg { width: 95vw; max-height: 92vh; }
+    /* 同上: max-width 必须和 width 一起显式, 否则 UA 的 calc(100vw-38px)=337px
+       会把 95vw=356 截到 337 (实测 iPhone SE 375 屏). 铁律13. */
+    #lightboxDlg { width: 95vw; max-width: 95vw; max-height: 92vh; }
     #lightboxDlg .lb-scroll { max-height: 92vh; padding: var(--space-2); }
     #lightboxDlg .lb-close { top: 10px; right: 10px; }
   }

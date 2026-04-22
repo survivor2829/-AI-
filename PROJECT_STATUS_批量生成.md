@@ -647,6 +647,48 @@ WHERE bi.status = 'done' AND json_extract(bi.result, '$.preview_png') IS NULL;
 
 ---
 
+### 前端陷阱 · 原生 HTML 控件坑
+
+**铁律 13 — 原生 `<dialog>:modal` 有 UA stylesheet 的隐形 max-width, 做尺寸控制必须同时显式设 `width` + `max-width`**:
+
+Chromium / Firefox 的 User Agent Stylesheet 对 `dialog:modal` 偷偷加了:
+```css
+dialog:modal {
+  max-width:  calc(100% - 6px - 2em);   /* ≈ calc(100vw - 38px) */
+  max-height: calc(100% - 6px - 2em);
+}
+```
+
+作者样式 (author stylesheet) 写 `width: 95vw` 而没同时写 `max-width` 时, **UA 的 max-width 会兜底生效把 width 截短**. 这不是 specificity 竞争 (ID 选择器优先级肯定高于 `dialog:modal` 伪类), 是 **属性竞争**: 两个属性 `width` 和 `max-width` 相互独立, 你没写 max-width, UA 的就生效.
+
+**踩坑案例** (2026-04-22 任务1 lightbox v2→v3):
+- 写了 `#lightboxDlg { width: 95vw; }` 期望 iPhone SE 375 屏 dialog = 356.25px
+- 实测 Playwright `getComputedStyle(...).width` = **337px** (= 375 - 38)
+- 桌面屏 (1440+) 没暴露, 因为 UA max-width `calc(100vw-38px)` 远大于我的 width
+- 只在小屏 (手机) 暴露
+- 修法: 桌面 / 移动分支都同时写 `width` + `max-width`
+
+**判定规则**: 任何自定义 `<dialog>` 尺寸 (特别是 responsive 或 modal 场景), **width 写什么, max-width 就写什么** (或显式 `max-width: none`). 两个属性缺一不可.
+
+**验证工具 (决定性证据, 不靠肉眼)**:
+```python
+# docker exec python3 Playwright
+page.set_content(test_html)
+page.wait_for_function('document.getElementById(\"x\").open')
+w = page.evaluate('() => getComputedStyle(document.getElementById(\"x\")).width')
+# w 必须等于 CSS 期望值, 不等 = UA 样式漏覆盖
+```
+
+**横向扩展 — 其他有 UA 隐形样式的原生控件** (遇到要问"UA 有没有干预"):
+- `<input type=search>` 在 Safari 有默认 appearance + inner padding
+- `<select>` 默认有 OS-level 箭头, 跨浏览器渲染差异大
+- `<summary>` 默认 `display: list-item` + marker
+- `<fieldset>` 默认 `min-width: min-content`, 挤坏 flex / grid
+
+**铁律 14 (附属) — 调试原生控件尺寸必须用 `getComputedStyle()` 或 `getBoundingClientRect()`, 不是 F12 Elements 面板里的 CSS 值**: F12 只显示作者写的值, 看不见 UA 默认的"暗物质". 测试 CSS 必跑 Playwright + computed style, 拿到的是浏览器实际渲染引擎算出来的数字.
+
+---
+
 ## 用户偏好
 - 用户能看 JSON 字段对错，但不直接读 Python 代码 → 验证步骤要写"预期看到 X"而不是"运行什么测试"
 - 用户用 curl 验证（但需要登录态时改用 requests.Session 脚本，curl + CSRF 在 PowerShell 里太啰嗦）
