@@ -1229,6 +1229,10 @@
     // done → 渲染预览缩略 + 下载HTML版按钮 + 解锁勾选框
     if (status === 'done' && result) {
       const previewUrl = result.preview_png || '';
+      // 2026-04-22 紧急3: done 但 preview_png=null (Playwright 超时等原因)
+      // 时, 不再显示纯 "(无)", 让 render_error 的具体原因冒泡给用户 —
+      // 他才知道是渲染失败不是系统没反应.
+      const renderError = result.render_error || '';
       const previewCell = row.querySelector('.preview-cell');
       if (previewCell) {
         const safeN = escapeHtml(name);
@@ -1238,7 +1242,9 @@
                   loading="lazy" decoding="async"
                   data-full="${previewUrl}"
                   data-caption="HTML 版 · ${safeN}">`
-          : '<span class="muted">(无)</span>';
+          : renderError
+            ? `<span class="muted" title="${escapeHtml(renderError)}">(渲染失败)</span>`
+            : '<span class="muted">(无)</span>';
         // 下载按钮只在真有 preview.png 时才显示, 避免点出 404
         const dl = previewUrl ? `<div>${buildDlLink(name, 'html')}</div>` : '';
         previewCell.innerHTML = thumb + dl;

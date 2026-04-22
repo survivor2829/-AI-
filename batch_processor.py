@@ -190,9 +190,15 @@ def _render_product_preview(
                 device_scale_factor=2,
             )
             page = ctx.new_page()
+            # 2026-04-22 紧急3: wait_until 从 networkidle 改为 load.
+            # networkidle 要求"网络静默 500ms 以上"才算, 任何懒加载 / 超大图
+            # (实测 DZ70X 上传 254MB 透明 PNG) 都能把它无限拖 → 30s timeout
+            # → preview.png 不生成 → DB preview_png=null → 前端列空.
+            # load 只等 window.onload (同步资源发起即可), DOM 就绪就返回,
+            # 给 3s wait_for_timeout 让大图尽量解码完再截. 截到多少算多少.
             page.goto(preview_html_path.as_uri(),
-                      wait_until="networkidle", timeout=30000)
-            page.wait_for_timeout(2000)  # 余量给字体/图片完全 paint
+                      wait_until="load", timeout=30000)
+            page.wait_for_timeout(3000)  # DOM 就绪后给大图多 3s 解码
             page.screenshot(path=str(preview_png_path), full_page=True)
             browser.close()
         print(f"[batch_processor] {scope_id}/{name} → preview.png 截图完成",
