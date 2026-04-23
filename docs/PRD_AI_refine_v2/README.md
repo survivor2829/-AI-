@@ -8,6 +8,7 @@
 
 | 文件 | 说明 |
 |------|------|
+| **`PRD_final.md`** | **PRD 最终版 (方向 D · 卖点驱动, 等用户 review 批准)** |
 | `demo_gpt2_v2_dz600m.jpg` | v2 实测产出 (2.4MB, 1024x1024) |
 | `demo_gpt_image2_v2.py` | 生成脚本 (edits-first 探测 + generations 降级) |
 | `prompt_final_v2.md` | 四段 prompt 最终版 (PRESERVE/CHANGE/CONSTRAINTS/STYLE) |
