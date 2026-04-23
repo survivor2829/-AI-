@@ -281,3 +281,154 @@ def plan(
 
     # 逻辑上不可达
     raise PlannerError(f"unreachable: last_err={last_err}")
+
+
+# ── CLI · 真实 DeepSeek 烟雾测试 (W1 Day 5) ─────────────────────
+# 只做 DZ600M 一个 case, 成本 ¥0.01, 跟 w1_samples/10_device_dz600m.json 黄金样本对比.
+# 不在单测覆盖 (单测永远走 mock), CLI 入口仅用于手动烧一次真 API 验证 mock <-> 真 API 对齐.
+
+_DZ600M_TEXT = (
+    "DZ600M 无人水面清洁机, 工业黄色机身配黑色螺旋履带浮筒, "
+    "螺旋清污机构清污效率提升 3 倍, "
+    "续航 8 小时一天不充电, "
+    "适用于城市河道 / 工厂污水池 / 景区湖泊, "
+    "防腐涂层 5 年不锈, "
+    "低噪音运行不打扰居民."
+)
+
+
+def _load_golden_dz600m() -> dict | None:
+    """从 w1_samples/10_device_dz600m.json 加载黄金样本的 planner_output."""
+    from pathlib import Path
+    repo_root = Path(__file__).resolve().parents[1]
+    jp = repo_root / "docs" / "PRD_AI_refine_v2" / "w1_samples" / "10_device_dz600m.json"
+    if not jp.is_file():
+        return None
+    try:
+        return json.loads(jp.read_text(encoding="utf-8")).get("planner_output")
+    except Exception:
+        return None
+
+
+def _compare(golden: dict, fresh: dict) -> dict:
+    """对比黄金 vs 实时输出的关键字段. 返回 {fail_flags, detail} dict."""
+    from collections import Counter
+
+    g_pm, f_pm = golden.get("product_meta", {}), fresh.get("product_meta", {})
+    g_sps, f_sps = golden.get("selling_points", []), fresh.get("selling_points", [])
+
+    fail = []
+    detail = {}
+
+    # (1) category 严格一致
+    detail["category"] = f"{g_pm.get('category')!r} vs {f_pm.get('category')!r}"
+    if g_pm.get("category") != f_pm.get("category"):
+        fail.append(f"category 不一致: {g_pm.get('category')} vs {f_pm.get('category')}")
+
+    # (2) primary_color 主色 token 重合
+    g_color = (g_pm.get("primary_color") or "").lower()
+    f_color = (f_pm.get("primary_color") or "").lower()
+    detail["primary_color"] = f"{g_color!r} vs {f_color!r}"
+    color_words = ("yellow", "black", "white", "gray", "grey", "blue",
+                   "red", "green", "orange", "transparent")
+    g_t = {w for w in color_words if w in g_color}
+    f_t = {w for w in color_words if w in f_color}
+    if g_t != f_t and not (g_t & f_t):  # 完全无交集才报警
+        fail.append(f"primary_color 主色差异: {g_t} vs {f_t}")
+
+    # (3) selling_points 数量 ±2 可接受 (新 prompt 更严格, sp 数量可能略降)
+    n_diff = abs(len(g_sps) - len(f_sps))
+    detail["selling_points_count"] = f"{len(g_sps)} vs {len(f_sps)} (diff={n_diff})"
+    if n_diff > 2:
+        fail.append(f"selling_points 数量差 > 2")
+
+    # (4) visual_type 分布 ±2 可接受
+    g_dist = Counter(sp.get("visual_type") for sp in g_sps)
+    f_dist = Counter(sp.get("visual_type") for sp in f_sps)
+    detail["visual_type_dist"] = f"{dict(g_dist)} vs {dict(f_dist)}"
+    for vt in ("product_in_scene", "product_closeup", "concept_visual"):
+        if abs(g_dist.get(vt, 0) - f_dist.get(vt, 0)) > 2:
+            fail.append(f"{vt} 数量差 > 2")
+
+    # (5) P2 过滤器生效: fresh 的 selling_points 不应含产品型号
+    product_name = f_pm.get("name", "")
+    first_token = re.split(r"[\s,,]", product_name, maxsplit=1)[0] if product_name else ""
+    detail["p2_check"] = f"first_token={first_token!r}"
+    if first_token and len(first_token) >= 2:
+        for sp in f_sps:
+            if first_token in (sp.get("text") or "")[:15]:
+                fail.append(f"P2 过滤器失效: 卖点含型号 {first_token!r}: {sp.get('text')}")
+                break
+
+    # 一致度: 4 个硬检查 (category/color/sp数量/vt 分布)
+    hard_checks = 4
+    passed = hard_checks - sum(
+        1 for f in fail
+        if any(k in f for k in ("category", "primary_color", "selling_points 数量", "数量差"))
+    )
+    detail["consistency"] = f"{passed}/{hard_checks} = {passed / hard_checks:.0%}"
+
+    return {"fail_flags": fail, "detail": detail, "consistency": passed / hard_checks}
+
+
+def _smoke_test_dz600m() -> int:
+    """跑 DZ600M 真实 DeepSeek, 对比黄金样本. 返回 exit code (0=pass)."""
+    print("=" * 66)
+    print("AI 精修 v2 · Day 5 · DZ600M 真实 DeepSeek 烟雾测试")
+    print("=" * 66)
+
+    if not os.environ.get("DEEPSEEK_API_KEY", "").strip():
+        print("[FAIL] DEEPSEEK_API_KEY 未配置 (Windows: $env:DEEPSEEK_API_KEY='sk-xxx')")
+        return 1
+
+    golden = _load_golden_dz600m()
+    if not golden:
+        print("[FAIL] 找不到黄金样本 w1_samples/10_device_dz600m.json")
+        return 1
+    print(f"[ok] 黄金样本加载: {len(golden.get('selling_points') or [])} 个卖点")
+
+    print(f"[post] 调 DeepSeek plan() (max_retries=1)...")
+    t0 = time.time()
+    try:
+        fresh = plan(product_text=_DZ600M_TEXT, max_retries=1)
+    except PlannerError as e:
+        print(f"[FAIL] plan() 抛 PlannerError: {e}")
+        return 1
+    elapsed = round(time.time() - t0, 2)
+    print(f"[ok] 调用成功 · {elapsed}s · {len(fresh.get('selling_points') or [])} 个卖点")
+
+    # 对比
+    report = _compare(golden, fresh)
+    print("\n── 对比报告 ──")
+    for k, v in report["detail"].items():
+        print(f"  {k}: {v}")
+
+    if report["fail_flags"]:
+        print("\n── 失败项 ──")
+        for f in report["fail_flags"]:
+            print(f"  ✗ {f}")
+        print(f"\n[FAIL] 一致度 {report['consistency']:.0%}, smoke test 不通过")
+        return 1
+
+    print(f"\n[PASS] 一致度 {report['consistency']:.0%}, mock 与真 API 对齐")
+    return 0
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    ap = argparse.ArgumentParser(
+        description="AI 精修 v2 · DeepSeek 规划官 CLI",
+    )
+    ap.add_argument(
+        "--smoke-test", action="store_true",
+        help="跑 DZ600M 真实 DeepSeek 烟雾测试 (需要 DEEPSEEK_API_KEY)",
+    )
+    args = ap.parse_args()
+
+    if args.smoke_test:
+        sys.exit(_smoke_test_dz600m())
+
+    ap.print_help()
+    sys.exit(1)
