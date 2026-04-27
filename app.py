@@ -4470,6 +4470,58 @@ def _get_block_display_name(block_id):
     return reg[1] if reg else block_id
 
 
+# ── AI 精修 v2 端点 (DeepSeek planner + APIMart gpt-image-2 + Playwright 拼装) ──
+# 无 key 时自动降级 mock (用 4/23 demo 的 6 张图做占位), 让 UI 能完整走通.
+# 配齐 DEEPSEEK_API_KEY + GPT_IMAGE_API_KEY 后自动切真实 API.
+@app.route("/api/ai-refine-v2/execute", methods=["POST"])
+@login_required
+def ai_refine_v2_execute():
+    """启动 v2 精修管线 (后台线程跑 3-5 分钟), 立即返回 task_id 供前端轮询."""
+    data = request.get_json(silent=True) or {}
+    product_text = (data.get("product_text") or "").strip()
+    product_image_url = (data.get("product_image_url") or "").strip()
+    product_title = (data.get("product_title") or "").strip()
+
+    if not product_image_url:
+        return jsonify({"error": "缺少 product_image_url (产品主图)"}), 400
+    if not product_text and not product_title:
+        return jsonify({"error": "product_text 和 product_title 至少给一个"}), 400
+
+    from ai_refine_v2 import pipeline_runner
+    deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    gpt_image_key = os.environ.get("GPT_IMAGE_API_KEY", "").strip()
+
+    task_id = pipeline_runner.start_task(
+        product_text=product_text,
+        product_image_url=product_image_url,
+        product_title=product_title,
+        deepseek_key=deepseek_key,
+        gpt_image_key=gpt_image_key,
+    )
+    mode = pipeline_runner._detect_mode(deepseek_key, gpt_image_key)
+    return jsonify({
+        "ok": True,
+        "task_id": task_id,
+        "mode": mode,
+        "poll_url": f"/api/ai-refine-v2/status/{task_id}",
+        "notes": (
+            [] if mode == "real"
+            else ["当前为 mock/partial-mock 模式: 部分或全部使用占位图. "
+                  "配置 DEEPSEEK_API_KEY + GPT_IMAGE_API_KEY 后自动切真实生成."]
+        ),
+    })
+
+
+@app.route("/api/ai-refine-v2/status/<task_id>", methods=["GET"])
+@login_required
+def ai_refine_v2_status(task_id: str):
+    """轮询 v2 精修任务进度. 返回 status / progress_pct / progress_msg / 结果字段."""
+    from ai_refine_v2 import pipeline_runner
+    state = pipeline_runner.get_task_status(task_id)
+    if state is None:
+        return jsonify({"error": f"任务不存在或已过期: {task_id}"}), 404
+    return jsonify(state)
+
 
 
 @app.route('/build/<product_type>', methods=['GET'])

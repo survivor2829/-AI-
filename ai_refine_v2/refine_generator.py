@@ -1,26 +1,56 @@
-"""AI 精修 v2 · gpt-image-2 生图层 (W2 Day 1 骨架).
+"""AI 精修 v2 · gpt-image-2 生图层 (W2 Day 3-5 实现).
 
-职责 (W2 完整实现后):
-  1. planning JSON → 每个 block 按 visual_type 渲染 prompt (调 prompts.generator.render)
-  2. 并发调 gpt-image-2 (APIMart, thinking=medium, 并发度 3)
-  3. 失败策略:
-     - Hero 失败 (重试 2 次仍挂) → raise HeroFailure (PRD §7 整单 fail)
-     - 卖点图失败 (重试 1 次仍挂) → best-effort, 生成占位图标记 placeholder=True
-  4. 成本累计 + 耗时统计
+职责:
+  1. planning JSON → 每 block 按 visual_type 渲染 prompt (调 prompts.generator.render)
+  2. 并发调 APIMart gpt-image-2 (thinking=medium, 默认并发度 3)
+  3. 分层失败策略 (PRD §7):
+     - Hero 失败 (重试 max_retries_hero 次仍挂) → raise HeroFailure → 整单 fail
+     - 卖点图失败 (重试 max_retries_sp 次仍挂) → BlockResult(placeholder=True), 不阻塞整单
+  4. 成本累计 + 端到端耗时 (存 GenerationResult)
 
-当前状态 (W2 Day 1):
-  - ✅ BlockResult / GenerationResult 数据结构定义
-  - ✅ HeroFailure 异常
-  - ✅ generate() 函数签名 (抛 NotImplementedError, 防止误调用)
-  - ⏸ APIMart HTTP 调用 (W2 Day 3)
-  - ⏸ 并发 + 重试 + 占位降级 (W2 Day 4)
-  - ⏸ 成本追踪 (W2 Day 5)
+注入点 (单测用):
+  api_call_fn: (prompt, image_data_url, api_key, thinking, size) -> image_url
+               生产用 _default_api_call (submit + poll). 测试传 mock.
+
+对外:
+  from ai_refine_v2.refine_generator import (
+      generate, BlockResult, GenerationResult, HeroFailure
+  )
+
+历史:
+  W2 Day 1 (2026-04-23): 骨架 + dataclass + NotImplementedError 桩
+  W2 Day 3-5 (2026-04-24): HTTP/并发/重试/成本/注入点全部落地
 """
 from __future__ import annotations
+import base64
+import concurrent.futures
+import json
+import mimetypes
+import os
+import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
-from typing import Optional
+from pathlib import Path
+from typing import Any, Callable, Optional
+
+from ai_refine_v2.prompts.generator import render
 
 
+# ── 常量 ────────────────────────────────────────────────────────
+_APIMART_BASE = "https://api.apimart.ai/v1"
+_APIMART_MODEL = "gpt-image-2"
+_APIMART_SIZE_DEFAULT = "1:1"
+_POLL_INTERVAL_S = 3
+_POLL_TIMEOUT_S = 240
+_COST_PER_CALL_RMB = 0.70  # gpt-image-2 + thinking=medium
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+)
+
+
+# ── 数据结构 ────────────────────────────────────────────────────
 @dataclass
 class BlockResult:
     """单个 block 的生成结果. 无论成功失败都记录.
@@ -31,8 +61,8 @@ class BlockResult:
         prompt: 实际送给 gpt-image-2 的完整 prompt 字符串
         image_url: 成功时 APIMart 返回的图 URL, 失败则 None
         error: 失败原因 (API 错误 / timeout / 内容拒绝等)
-        placeholder: True = 走了"best-effort 降级",图片是本地生成的占位图
-                     False = 真实生成的 AI 图或真正失败 (image_url=None)
+        placeholder: True = 走了"best-effort 降级",上层渲染时要用占位图或跳过.
+                     False = 真实生成的 AI 图 (image_url 非空) 或 Hero 彻底失败 (已 raise).
     """
     block_id: str
     visual_type: str
@@ -47,11 +77,11 @@ class GenerationResult:
     """一次 generate() 调用的完整结果.
 
     Attributes:
-        blocks: 所有 block 的结果数组, 按 planning.block_order 顺序
-        hero_success: Hero 是否成功生成. False → 整单 fail (PRD §7)
-        total_cost_rmb: 本次累计成本 (人民币, gpt-image-2 + 可能的降级调用)
-        total_elapsed_s: 端到端耗时 (秒)
-        errors: 所有失败的 block_id 及原因, 供前端 debug
+        blocks: 所有 block 的结果数组, 按 planning.block_order 顺序 (ThreadPool 乱序结果会在末尾重排)
+        hero_success: Hero 是否成功生成. False → 整单 fail 前的状态 (调用者一般拿不到, 因为会 raise)
+        total_cost_rmb: 本次累计成本 (人民币, 按成功的 APIMart 调用数 × cost_per_call_rmb)
+        total_elapsed_s: 端到端耗时 (秒, 从 generate() 进入到返回)
+        errors: 所有失败的 "block_id: reason" 字符串, 供前端 debug
     """
     blocks: list[BlockResult] = field(default_factory=list)
     hero_success: bool = False
@@ -63,50 +93,448 @@ class GenerationResult:
 class HeroFailure(RuntimeError):
     """Hero 屏生成失败 → PRD §7 规定整单 fail, 全额退款.
 
-    Raises 时机: 重试 2 次后 Hero 的 gpt-image-2 调用仍挂.
-    上层 (batch_processor / 新的 refine_orchestrator) 捕获后应:
+    Raises 时机: Hero block 重试 max_retries_hero 次后仍挂.
+    上层 (batch_processor / refine_orchestrator) 捕获后应:
       1. 标记该产品批次为 failed
       2. 不保留任何已生成的其它屏 (卖点图/强制屏), 避免"残次产品"
       3. 退款 / 通知用户
     """
 
 
+# ── HTTP 底层 (私有) ────────────────────────────────────────────
+def _http_post_json(
+    url: str, payload: dict, api_key: str, timeout: int = 90,
+) -> tuple[int, Any]:
+    """POST JSON, 默认读 env HTTP_PROXY (APIMart 需要走代理).
+
+    返回 (status_code, parsed_body | raw_text). HTTPError 时也返错误 body 而非 raise,
+    便于 submit 层精细判断 APIMart 的自定义 code 字段.
+    """
+    req = urllib.request.Request(
+        url, method="POST",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": _UA,
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            body = r.read().decode("utf-8")
+            try:
+                return r.status, json.loads(body)
+            except json.JSONDecodeError:
+                return r.status, body
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        try:
+            return e.code, json.loads(body)
+        except json.JSONDecodeError:
+            return e.code, body
+
+
+def _http_get_json(url: str, api_key: str, timeout: int = 30) -> dict:
+    req = urllib.request.Request(
+        url, method="GET",
+        headers={"Authorization": f"Bearer {api_key}", "User-Agent": _UA},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+# ── APIMart submit / poll (私有) ────────────────────────────────
+def _submit_image_task(
+    prompt: str,
+    image_data_url: Optional[str],
+    api_key: str,
+    thinking: str = "medium",
+    size: str = _APIMART_SIZE_DEFAULT,
+) -> str:
+    """提交 gpt-image-2 任务到 APIMart, 返回 task_id."""
+    payload: dict[str, Any] = {
+        "model": _APIMART_MODEL,
+        "prompt": prompt,
+        "n": 1,
+        "size": size,
+        "thinking": thinking,
+        "reasoning_effort": thinking,
+    }
+    if image_data_url:
+        payload["image_urls"] = [image_data_url]
+
+    code, body = _http_post_json(
+        f"{_APIMART_BASE}/images/generations", payload, api_key,
+    )
+    if code != 200 or not isinstance(body, dict) or body.get("code") != 200:
+        raise RuntimeError(f"APIMart submit HTTP {code}: {body}")
+    tasks = body.get("data") or []
+    if not tasks or not tasks[0].get("task_id"):
+        raise RuntimeError(f"APIMart 响应缺 task_id: {body}")
+    return tasks[0]["task_id"]
+
+
+def _poll_image_task(
+    task_id: str,
+    api_key: str,
+    poll_interval: int = _POLL_INTERVAL_S,
+    poll_timeout: int = _POLL_TIMEOUT_S,
+) -> str:
+    """轮询 APIMart task 直到 completed, 返回 image_url. 失败/超时抛异常."""
+    t0 = time.time()
+    while True:
+        elapsed = time.time() - t0
+        if elapsed > poll_timeout:
+            raise TimeoutError(
+                f"APIMart 轮询超时 {poll_timeout}s, task_id={task_id}"
+            )
+        data = _http_get_json(
+            f"{_APIMART_BASE}/tasks/{task_id}?language=en", api_key,
+        )
+        node = data.get("data") or data
+        status = node.get("status")
+        if status == "completed":
+            images = (node.get("result") or {}).get("images") or []
+            if not images:
+                raise RuntimeError(f"APIMart completed 但无 images: {node}")
+            url = images[0].get("url")
+            if isinstance(url, list):
+                url = url[0] if url else None
+            if not url:
+                raise RuntimeError(f"APIMart completed 但无 url: {images}")
+            return url
+        if status in ("failed", "cancelled"):
+            raise RuntimeError(f"APIMart 任务 {status}: {node}")
+        time.sleep(poll_interval)
+
+
+def _default_api_call(
+    prompt: str,
+    image_data_url: Optional[str],
+    api_key: str,
+    thinking: str = "medium",
+    size: str = _APIMART_SIZE_DEFAULT,
+) -> str:
+    """生产默认: submit + poll. 单测注入 mock 时替换此函数.
+
+    签名约束 (ApiCallFn):
+        (prompt, image_data_url, api_key, thinking, size) -> image_url
+    """
+    task_id = _submit_image_task(
+        prompt, image_data_url, api_key, thinking=thinking, size=size,
+    )
+    return _poll_image_task(task_id, api_key)
+
+
+ApiCallFn = Callable[[str, Optional[str], str, str, str], str]
+
+
+# ── 工具: 产品图 → data URL ────────────────────────────────────
+def _to_data_url(path_or_url: str) -> str:
+    """路径/URL 规范化到可喂 APIMart 的字符串.
+
+    - data:... → 原样返回
+    - http(s):// → 原样返回 (APIMart 支持远程 URL)
+    - 本地路径 → 读文件, base64 编码为 data URL
+    """
+    if path_or_url.startswith(("data:", "http://", "https://")):
+        return path_or_url
+    p = Path(path_or_url)
+    raw = p.read_bytes()
+    mime, _ = mimetypes.guess_type(p.name)
+    if not mime:
+        mime = "image/png"
+    b64 = base64.b64encode(raw).decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
+
+# ── Block 展开 + prompt 渲染 ───────────────────────────────────
+def _build_blocks(planning: dict) -> list[dict]:
+    """planning.block_order → [{block_id, visual_type, is_hero, selling_point}, ...]"""
+    sps_by_idx = {sp["idx"]: sp for sp in planning.get("selling_points", [])}
+    pl = planning.get("planning", {})
+    result: list[dict] = []
+    for bid in pl.get("block_order", []):
+        if bid == "hero":
+            result.append({
+                "block_id": "hero",
+                "visual_type": "product_in_scene",
+                "is_hero": True,
+                "selling_point": None,
+            })
+        elif bid.startswith("selling_point_"):
+            try:
+                idx = int(bid.split("_")[-1])
+            except ValueError:
+                continue
+            sp = sps_by_idx.get(idx)
+            if not sp:
+                continue
+            result.append({
+                "block_id": bid,
+                "visual_type": sp["visual_type"],
+                "is_hero": False,
+                "selling_point": sp,
+            })
+    return result
+
+
+def _render_prompt_for_block(block: dict, planning: dict) -> str:
+    """按 visual_type 调对应 Jinja2 模板, 全部参数从 planning 取."""
+    pm = planning["product_meta"]
+    pl = planning["planning"]
+    vt = block["visual_type"]
+
+    if vt == "product_in_scene":
+        if block["is_hero"]:
+            scene = pl.get("hero_scene_hint") or "product in application scene"
+            sp_for_context = {"text": "hero shot"}
+            human_hint = "operator with tablet reviewing real-time data"
+        else:
+            sp = block["selling_point"]
+            scene = sp.get("text") or "product in scene"
+            sp_for_context = sp
+            human_hint = ""
+        return render(
+            "product_in_scene",
+            product=pm, scene=scene, hero=block["is_hero"],
+            human_hint=human_hint, selling_point=sp_for_context,
+        )
+
+    if vt == "product_closeup":
+        sp = block["selling_point"]
+        # focus_part 优先用 key_visual_parts 首条英文 phrase (更适合特写),
+        # 否则回退用卖点 text (中文也可, gpt-image-2 能理解).
+        key_parts = pm.get("key_visual_parts") or []
+        focus_part = (key_parts[0] if key_parts else None) or sp.get("text", "key part")
+        return render("product_closeup", product=pm, focus_part=focus_part)
+
+    if vt == "concept_visual":
+        return render("concept_visual", selling_point=block["selling_point"])
+
+    raise ValueError(f"unknown visual_type: {vt}")
+
+
+# ── 单 block 生成 (含重试) ─────────────────────────────────────
+def _generate_one_block(
+    block: dict,
+    planning: dict,
+    product_cutout_url: Optional[str],
+    api_key: str,
+    api_call_fn: ApiCallFn,
+    max_retries: int,
+    thinking: str,
+    size: str,
+) -> tuple[BlockResult, float]:
+    """生成单个 block, 内部做重试. 返回 (BlockResult, 实际累计成本).
+
+    成功返 image_url 且成本 = cost_per_call_rmb.
+    重试耗尽返 image_url=None, 成本 = 0 (失败调用不计费).
+
+    NOTE: placeholder 标记由上层 generate() 打 (只对 SP 失败打,
+          Hero 失败直接 raise HeroFailure 不走 placeholder 路径).
+    """
+    bid = block["block_id"]
+    vt = block["visual_type"]
+
+    try:
+        prompt = _render_prompt_for_block(block, planning)
+    except Exception as e:
+        # prompt 渲染失败 → 不重试, 直接返错 (typically StrictUndefined bug)
+        return (
+            BlockResult(
+                block_id=bid, visual_type=vt,
+                prompt="(render failed)",
+                image_url=None,
+                error=f"render 失败: {type(e).__name__}: {e}",
+                placeholder=False,
+            ),
+            0.0,
+        )
+
+    # product_in_scene + product_closeup 需要参考图 (PRESERVE 段)
+    # concept_visual 不需要
+    image_data_url: Optional[str] = None
+    if vt in ("product_in_scene", "product_closeup") and product_cutout_url:
+        try:
+            image_data_url = _to_data_url(product_cutout_url)
+        except Exception as e:
+            # 参考图转换失败不致命, 降级纯文生 (会丢失产品还原但不 crash)
+            print(f"[gen][{bid}] 参考图转 data URL 失败, 降级纯文生: {e}")
+
+    last_err = None
+    attempts = 0
+    while attempts <= max_retries:
+        try:
+            url = api_call_fn(prompt, image_data_url, api_key, thinking, size)
+            return (
+                BlockResult(
+                    block_id=bid, visual_type=vt,
+                    prompt=prompt, image_url=url,
+                    error=None, placeholder=False,
+                ),
+                _COST_PER_CALL_RMB,
+            )
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+            attempts += 1
+            if attempts <= max_retries:
+                print(f"[gen][{bid}] attempt {attempts} 失败, 重试: {last_err}")
+                time.sleep(1)
+                continue
+            break
+
+    # 重试耗尽
+    return (
+        BlockResult(
+            block_id=bid, visual_type=vt,
+            prompt=prompt, image_url=None,
+            error=f"重试 {max_retries} 次后仍失败: {last_err}",
+            placeholder=False,
+        ),
+        0.0,
+    )
+
+
+# ── 主入口 ──────────────────────────────────────────────────────
 def generate(
     planning: dict,
     product_cutout_url: Optional[str] = None,
     api_key: Optional[str] = None,
     thinking: str = "medium",
+    size: str = _APIMART_SIZE_DEFAULT,
     concurrency: int = 3,
     max_retries_hero: int = 2,
     max_retries_sp: int = 1,
+    api_call_fn: Optional[ApiCallFn] = None,
+    cost_per_call_rmb: float = _COST_PER_CALL_RMB,
 ) -> GenerationResult:
     """planning JSON → 一组 gpt-image-2 图片 URL.
 
+    执行顺序:
+      1. Hero 同步跑 (最多 max_retries_hero 次重试).
+         失败 → raise HeroFailure (PRD §7 整单 fail).
+      2. 其它 block 在 ThreadPoolExecutor(max_workers=concurrency) 里并发跑,
+         每个 block 最多 max_retries_sp 次重试.
+         失败 → BlockResult(placeholder=True), 不阻塞整单.
+      3. result.blocks 按 planning.block_order 重排 (因 ThreadPool 无序).
+
     Args:
         planning: ai_refine_v2.refine_planner.plan() 的返回
-                  (含 product_meta / selling_points / planning 3 段)
-        product_cutout_url: 产品裁图 URL (作为 image-to-image 的 Image 1).
-                            None 时所有 PRESERVE 段的模板都会渲染异常.
-        api_key: APIMart gpt-image-2 API key. None 时从 env GPT_IMAGE_API_KEY 读
-        thinking: "off" / "low" / "medium" / "high"; W2 demo 实测 medium 性价比最好
-        concurrency: 并发度, 默认 3 (APIMart 限流保护)
-        max_retries_hero: Hero 失败重试次数 (PRD §7 严格, 默认 2)
-        max_retries_sp: 卖点图失败重试次数 (PRD §7 best-effort, 默认 1)
+        product_cutout_url: 产品裁图路径/URL/data URL, None 则纯文生 (PRESERVE 段效果差)
+        api_key: APIMart gpt-image-2 API key. None 从 env GPT_IMAGE_API_KEY 读.
+                 (api_call_fn 注入 mock 时可传任意占位字符串)
+        thinking: "off" / "low" / "medium" / "high". medium 性价比最好.
+        size: "1:1" / "16:9" / "3:4" 等比例字符串 (APIMart 格式)
+        concurrency: SP block 并发度, APIMart 限流保护默认 3
+        max_retries_hero: Hero 失败重试次数 (PRD §7 严格, 默认 2 = 最多跑 3 次)
+        max_retries_sp: 卖点图失败重试次数 (PRD §7 best-effort, 默认 1 = 最多跑 2 次)
+        api_call_fn: 单测注入点, 生产默认 _default_api_call (submit + poll)
+                     签名: (prompt, image_data_url, api_key, thinking, size) -> image_url
+        cost_per_call_rmb: 每次成功调用成本, 默认 ¥0.70
 
     Returns:
         GenerationResult
 
     Raises:
-        HeroFailure: Hero 重试 max_retries_hero 次后仍失败
-        NotImplementedError: **W2 Day 1 骨架**, 调用会抛此异常
-
-    TODO W2 Day 3-5:
-      [W2 Day 3] 实现 APIMart HTTP 调用 + prompt 渲染
-      [W2 Day 4] 加并发 (concurrent.futures.ThreadPoolExecutor)
-                 + Hero/卖点图分层重试 + 占位降级
-      [W2 Day 5] 成本累计 + 单测替 _http_fn 注入 mock 响应
+        ValueError: planning 结构不合规 / blocks 为空 / blocks[0] 非 hero
+        HeroFailure: Hero 重试 max_retries_hero 次后仍失败 (PRD §7 整单 fail)
     """
-    raise NotImplementedError(
-        "refine_generator.generate() 在 W2 Day 3-5 实现. "
-        "当前是 W2 Day 1 骨架, 仅暴露接口."
+    # ── 参数校验 ────────────────────────────
+    if not planning or not isinstance(planning, dict):
+        raise ValueError("planning 必须是非空 dict")
+    for required_key in ("product_meta", "selling_points", "planning"):
+        if required_key not in planning:
+            raise ValueError(f"planning 结构不合规, 缺 {required_key!r}")
+
+    use_key = api_key or os.environ.get("GPT_IMAGE_API_KEY", "").strip()
+    if not use_key and api_call_fn is None:
+        # 只有走真 _default_api_call 时才强制要 key. 注入 mock 时可空.
+        raise ValueError("未配置 GPT_IMAGE_API_KEY (传参或设 env var)")
+
+    call_fn: ApiCallFn = api_call_fn or _default_api_call
+
+    result = GenerationResult()
+    t_start = time.time()
+
+    # ── 展开 blocks ─────────────────────────
+    blocks = _build_blocks(planning)
+    if not blocks:
+        raise ValueError("planning.block_order 展开后为空, 无 block 可生成")
+    if not blocks[0].get("is_hero"):
+        raise ValueError(f"blocks[0] 不是 hero (block_order 第一项必须是 'hero'): {blocks[0]}")
+
+    # 覆盖 cost_per_call_rmb (用局部常量供 _generate_one_block 知道)
+    # _generate_one_block 里写的是 _COST_PER_CALL_RMB 常量, 这里可以通过参数覆盖
+    # 但为保持签名简洁, 本函数内部直接算: 每次成功调用 += cost_per_call_rmb
+    # _generate_one_block 返回 "1.0 或 0.0" 的布尔式成本, 然后这里乘 cost_per_call_rmb ...
+    # 简化: 让 _generate_one_block 返回 (result, success_count_int), 这里乘 cost.
+    # 不. 为最小改动, 保留返 cost=_COST_PER_CALL_RMB, 然后这里 rescale:
+    scale = cost_per_call_rmb / _COST_PER_CALL_RMB if _COST_PER_CALL_RMB else 0.0
+
+    # ── Step 1: Hero 同步 + 重试 ─────────────
+    print(f"[gen] Hero 开始 (重试上限 {max_retries_hero})...")
+    hero_res, hero_cost = _generate_one_block(
+        blocks[0], planning, product_cutout_url,
+        use_key, call_fn, max_retries_hero, thinking, size,
     )
+    result.blocks.append(hero_res)
+    result.total_cost_rmb += hero_cost * scale
+
+    if hero_res.image_url is None:
+        # Hero 彻底失败 → PRD §7 整单 fail
+        result.errors.append(f"hero: {hero_res.error}")
+        result.total_elapsed_s = round(time.time() - t_start, 2)
+        raise HeroFailure(
+            f"Hero 重试 {max_retries_hero} 次后仍失败: {hero_res.error}. "
+            f"PRD §7: 已生成的其它 block 不保留 (整单 fail)."
+        )
+
+    result.hero_success = True
+    print(f"[gen] Hero OK · url={str(hero_res.image_url)[:60]}...")
+
+    # ── Step 2: SP block 并发 + 分层重试 ─────
+    sp_blocks = blocks[1:]
+    if not sp_blocks:
+        result.total_elapsed_s = round(time.time() - t_start, 2)
+        return result
+
+    print(f"[gen] SP blocks × {len(sp_blocks)}, 并发度 {concurrency}...")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
+        futures = {
+            pool.submit(
+                _generate_one_block,
+                b, planning, product_cutout_url, use_key, call_fn,
+                max_retries_sp, thinking, size,
+            ): b
+            for b in sp_blocks
+        }
+        for fut in concurrent.futures.as_completed(futures):
+            b = futures[fut]
+            try:
+                br, cost = fut.result()
+            except Exception as e:
+                # 内部已捕获, 防御: pool 本身异常
+                br = BlockResult(
+                    block_id=b["block_id"], visual_type=b["visual_type"],
+                    prompt="(executor error)", image_url=None,
+                    error=f"{type(e).__name__}: {e}",
+                    placeholder=True,
+                )
+                cost = 0.0
+
+            # SP 失败 → placeholder=True (PRD §7 best-effort 降级)
+            if br.image_url is None:
+                br.placeholder = True
+                result.errors.append(f"{br.block_id}: {br.error}")
+
+            result.blocks.append(br)
+            result.total_cost_rmb += cost * scale
+
+    # 按 block_order 重排 (ThreadPool 完成顺序乱)
+    order_map = {b["block_id"]: i for i, b in enumerate(blocks)}
+    result.blocks.sort(key=lambda br: order_map.get(br.block_id, 10_000))
+
+    result.total_elapsed_s = round(time.time() - t_start, 2)
+    return result

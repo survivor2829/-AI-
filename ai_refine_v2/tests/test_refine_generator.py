@@ -1,17 +1,25 @@
-"""W2 Day 1 · refine_generator 骨架桩单测.
+"""W2 Day 3-5 · refine_generator 真功能单测.
 
-目的: 验证 API shape 和模板渲染, **不调真实 gpt-image-2 API**.
-W2 Day 3-5 实现 generate() 真功能后, 此文件会扩到端到端测.
+目的: 验证 API shape + 模板渲染 + generate() 完整业务逻辑.
+通过 api_call_fn 注入 mock, **不调真实 gpt-image-2 API** (零成本可重复).
 
 覆盖:
-  [Shape]    3 个测: 公开符号可 import, dataclass 结构, Exception 继承
-  [Template] 5 个测: 3 个 visual_type 各渲染 1 次 + STYLE_BASE 追加 + 未知类型抛异常
-  [Stub]     1 个测: generate() 当前应抛 NotImplementedError (保护边界)
-  [Integration] 1 个测: refine_planner → render 数据流通畅 (plan 输出可喂给 render)
-  合计 10 tests.
+  [Shape]        3 个测: 公开符号, dataclass 结构, Exception 继承
+  [Template]     5 个测: 3 个 visual_type 渲染 + STYLE_BASE 追加 + 未知类型抛
+  [Integration]  1 个测: refine_planner → render 数据流通畅
+  [Real funcs]   7 个测 (W2 Day 3-5):
+                   - happy path (3 block 全成功)
+                   - Hero 重试耗尽 → HeroFailure
+                   - Hero 重试一次后成功
+                   - SP 失败 → placeholder=True, 不阻塞
+                   - block_order 顺序 (ThreadPool 乱序完成时仍按 planning 排序)
+                   - 成本追踪精确
+                   - invalid planning → ValueError
+  合计 16 tests.
 """
 from __future__ import annotations
 import json
+import time
 import unittest
 from dataclasses import is_dataclass, fields
 from pathlib import Path
@@ -151,13 +159,176 @@ class TestPromptRendering(unittest.TestCase):
                    product={"name": "X", "primary_color": "red"})
 
 
-class TestGenerateStub(unittest.TestCase):
-    """generate() 当前是骨架, 调用应抛 NotImplementedError (防止误用)."""
+class TestGenerateRealFunctionality(unittest.TestCase):
+    """W2 Day 3-5 实装后, generate() 可用 api_call_fn 注入 mock 单测.
 
-    def test_generate_raises_not_implemented(self):
-        with self.assertRaises(NotImplementedError) as ctx:
-            generate(planning={})
-        self.assertIn("W2 Day 3-5", str(ctx.exception))
+    注: 所有 mock 都返预设 URL, 不调真实 APIMart, 零成本可重复.
+    """
+
+    @staticmethod
+    def _make_planning(
+        block_order: list[str] | None = None,
+        sps: list[dict] | None = None,
+    ) -> dict:
+        """生成符合 PRD §3.3 schema 的最小 planning, 供测试用."""
+        return {
+            "product_meta": {
+                "name": "TestBot 扫地机器人",
+                "category": "设备类",
+                "primary_color": "matte gray",
+                "key_visual_parts": ["gray metal body", "LiDAR sensor"],
+                "proportions": "compact round disc robot",
+            },
+            "selling_points": sps if sps is not None else [
+                {"idx": 1, "text": "城市道路清扫", "visual_type": "product_in_scene",
+                 "priority": "high", "reason": "场景"},
+                {"idx": 2, "text": "续航 8 小时", "visual_type": "concept_visual",
+                 "priority": "medium", "reason": "抽象指标"},
+            ],
+            "planning": {
+                "total_blocks": len(block_order) if block_order else 3,
+                "block_order": block_order or ["hero", "selling_point_1", "selling_point_2"],
+                "hero_scene_hint": "urban street morning",
+            },
+        }
+
+    def test_happy_path_all_blocks_succeed(self):
+        """3 block 全成功 → GenerationResult 齐全, 成本 = 3 × 0.70"""
+        call_log: list[str] = []
+
+        def mock_ok(prompt, img_url, api_key, thinking, size):
+            call_log.append(prompt[:30])
+            return f"https://fake.cdn/img_{len(call_log)}.png"
+
+        planning = self._make_planning()
+        result = generate(
+            planning, product_cutout_url=None, api_key="test-key",
+            api_call_fn=mock_ok, max_retries_hero=0, max_retries_sp=0,
+        )
+
+        self.assertTrue(result.hero_success)
+        self.assertEqual(len(result.blocks), 3)
+        self.assertEqual([b.block_id for b in result.blocks],
+                         ["hero", "selling_point_1", "selling_point_2"])
+        self.assertTrue(all(b.image_url for b in result.blocks))
+        self.assertTrue(all(not b.placeholder for b in result.blocks))
+        self.assertEqual(len(call_log), 3)
+        self.assertAlmostEqual(result.total_cost_rmb, 3 * 0.70, places=2)
+        self.assertEqual(len(result.errors), 0)
+        # elapsed 可能被 round(..., 2) 打成 0.0 (Windows 计时器粒度), 只验证上界
+        self.assertGreaterEqual(result.total_elapsed_s, 0.0)
+        self.assertLess(result.total_elapsed_s, 10.0)
+
+    def test_hero_fails_all_retries_raises_hero_failure(self):
+        """Hero 重试上限后仍挂 → HeroFailure. 卖点不应被调用 (整单 fail)."""
+        sp_calls: list[int] = []
+
+        def mock_hero_fail(prompt, *a, **kw):
+            if "hero shot" in prompt or "urban street morning" in prompt:
+                raise RuntimeError("APIMart 500 apimart_error: get_channel_failed")
+            sp_calls.append(1)
+            return "https://fake.cdn/sp.png"
+
+        planning = self._make_planning()
+        with self.assertRaises(HeroFailure) as ctx:
+            generate(planning, api_key="x", api_call_fn=mock_hero_fail,
+                     max_retries_hero=1, max_retries_sp=0)
+        self.assertIn("500", str(ctx.exception))
+        self.assertIn("重试", str(ctx.exception))
+        self.assertEqual(len(sp_calls), 0, "Hero 失败应整单 fail, SP 不该被调")
+
+    def test_hero_retries_then_succeeds(self):
+        """Hero 第 1 次失败第 2 次成功 → hero_success=True"""
+        attempts = {"n": 0}
+
+        def mock_transient(prompt, *a, **kw):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise RuntimeError("transient network")
+            return "https://fake.cdn/hero_ok.png"
+
+        planning = self._make_planning(block_order=["hero"])
+        result = generate(planning, api_key="x", api_call_fn=mock_transient,
+                          max_retries_hero=2, max_retries_sp=0)
+
+        self.assertTrue(result.hero_success)
+        self.assertEqual(attempts["n"], 2, "Hero 应调 2 次 (初次 + 重试 1)")
+        self.assertAlmostEqual(result.total_cost_rmb, 0.70, places=2)
+        self.assertEqual(result.blocks[0].image_url, "https://fake.cdn/hero_ok.png")
+
+    def test_sp_fails_returns_placeholder_not_blocking(self):
+        """Hero 成功 + 所有 SP 失败 → placeholder=True, 整单不 raise"""
+        call_n = {"n": 0}
+
+        def mock_hero_only(prompt, *a, **kw):
+            call_n["n"] += 1
+            if call_n["n"] == 1:  # hero 先跑 (同步)
+                return "https://fake.cdn/hero.png"
+            raise RuntimeError("SP network oops")
+
+        planning = self._make_planning()
+        result = generate(planning, api_key="x", api_call_fn=mock_hero_only,
+                          max_retries_hero=0, max_retries_sp=0, concurrency=1)
+
+        self.assertTrue(result.hero_success)
+        self.assertEqual(len(result.blocks), 3)
+        self.assertIsNotNone(result.blocks[0].image_url)  # hero
+        self.assertFalse(result.blocks[0].placeholder)
+        # SP 全部 placeholder
+        for sp_block in result.blocks[1:]:
+            self.assertIsNone(sp_block.image_url)
+            self.assertTrue(sp_block.placeholder)
+            self.assertIsNotNone(sp_block.error)
+        self.assertEqual(len(result.errors), 2, "2 个 SP 失败应记录 2 条 error")
+        self.assertAlmostEqual(result.total_cost_rmb, 0.70, places=2)  # 只 hero 成功
+
+    def test_block_order_preserved_despite_concurrent_completion(self):
+        """ThreadPool 完成顺序无关, result.blocks 必须按 planning.block_order"""
+        def mock_variable_latency(prompt, *a, **kw):
+            # concept (SP2) 比 in_scene (SP1) 快完成, 故意反序
+            if "续航" in prompt or "8 小时" in prompt.lower():
+                time.sleep(0.01)
+            else:
+                time.sleep(0.05)
+            return f"https://fake/{abs(hash(prompt)) % 10000}.png"
+
+        planning = self._make_planning()
+        result = generate(planning, api_key="x", api_call_fn=mock_variable_latency,
+                          max_retries_hero=0, max_retries_sp=0, concurrency=3)
+
+        self.assertEqual(
+            [b.block_id for b in result.blocks],
+            ["hero", "selling_point_1", "selling_point_2"],
+            "即使 SP2 比 SP1 先完成, 最终顺序也要按 block_order 排",
+        )
+
+    def test_cost_tracking_with_custom_cost(self):
+        """cost_per_call_rmb 可覆盖默认 ¥0.70"""
+        def mock_ok(prompt, *a, **kw):
+            return "https://fake/ok.png"
+
+        planning = self._make_planning()  # 3 blocks
+        result = generate(planning, api_key="x", api_call_fn=mock_ok,
+                          max_retries_hero=0, max_retries_sp=0,
+                          cost_per_call_rmb=1.00)
+        self.assertAlmostEqual(result.total_cost_rmb, 3.00, places=2)
+
+    def test_invalid_planning_raises_value_error(self):
+        """planning 不合规 → ValueError (不是 HeroFailure)"""
+        with self.assertRaises(ValueError):
+            generate({}, api_key="x", api_call_fn=lambda *a, **kw: "x")
+
+        with self.assertRaises(ValueError):
+            generate({"product_meta": {}}, api_key="x",
+                     api_call_fn=lambda *a, **kw: "x")
+
+        # block_order 首项非 hero → ValueError
+        bad_planning = self._make_planning(
+            block_order=["selling_point_1", "hero"],  # 反序
+        )
+        with self.assertRaises(ValueError) as ctx:
+            generate(bad_planning, api_key="x", api_call_fn=lambda *a, **kw: "x")
+        self.assertIn("hero", str(ctx.exception).lower())
 
 
 class TestPlannerGeneratorIntegration(unittest.TestCase):

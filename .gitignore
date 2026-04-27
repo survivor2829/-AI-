@@ -47,6 +47,10 @@ test_batch_input/
 smoke_output_v2/
 v2_result/
 
+# v2 pipeline 任务运行时输出（每次 start_task 生成 v2_<ts>_<hex> 子目录,
+# 含 block_*.jpg / assembled.png / _summary.json / _planning.json — 不是代码资产）
+static/ai_refine_v2/
+
 # 系统文件
 .DS_Store
 Thumbs.db

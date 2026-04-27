@@ -548,7 +548,7 @@
       <button class="btn-generate" id="btn_ai_html_v2" onclick="generateAiHtmlV2()" style="margin-top:14px; background:linear-gradient(135deg,#10b981,#059669); border:none; box-shadow:0 2px 6px rgba(5,150,105,0.28);">
         🎨 AI精修（专业版）
       </button>
-      <p class="text-hint" style="margin-top:8px;">豆包 Seedream 生成 AI 背景 + HTML/CSS 排版 + Chromium 截图,约 10-20 秒</p>
+      <p class="text-hint" style="margin-top:8px;">DeepSeek 分析文案 + GPT-image-2 真·AI 重绘 6 张图 → Playwright 拼装长图,约 3-5 分钟。服务端缺 key 会自动降级占位图。</p>
       <div id="ark_key_status" style="margin-top:8px; padding:8px 10px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; font-size:12px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
         <span id="ark_key_label" style="color:#6b7280;">⚙️ 豆包 Key: 未配置</span>
         <a href="#" onclick="setupArkKey(); return false;" style="color:#10b981; text-decoration:underline; font-size:12px;">设置</a>
@@ -1302,20 +1302,19 @@
     return next;
   }
 
-  /* ── AI 精修版：豆包 Seedream 背景 + HTML/CSS + Playwright 截图 ───── */
+  /* ── AI 精修（专业版）: DeepSeek planner + GPT-image-2 重绘 + Playwright 拼装 ─── */
   async function generateAiHtmlV2() {
-    if (!currentBuildData || !currentBuildData.parsed) {
-      showError('请先粘贴产品文案并点击「一键生成详情页」');
+    if (!productImageUrl) {
+      showError('请先上传产品主图');
       return;
     }
-    let arkKey = (localStorage.getItem('ark_api_key') || '').trim();
-    if (!arkKey) {
-      arkKey = setupArkKey();
-      if (!arkKey) {
-        showError('未填豆包 API Key,无法生成 AI 精修(点左侧「⚙️ 豆包 Key 设置」)');
-        return;
-      }
+    const productText = (document.getElementById('text_input')?.value || '').trim();
+    const productTitle = (document.getElementById('product_title_input')?.value || '').trim();
+    if (!productText && !productTitle) {
+      showError('请填产品文案或产品标题');
+      return;
     }
+
     switchCenterTab('ai_img');
     document.getElementById('empty_state').style.display = 'none';
 
@@ -1327,46 +1326,49 @@
     const loadingText = loading.querySelector('div:nth-child(2)');
     const subText = loading.querySelector('div:nth-child(3)');
     if (loadingText) loadingText.textContent = '正在生成 AI 精修版详情页…';
-    if (subText) subText.textContent = '豆包 Seedream 生成 AI 背景 + HTML/CSS 排版 + Chromium 截图,约 10-20 秒';
+    if (subText) subText.textContent = '提交中…';
 
     const bar = document.getElementById('ai_progress_bar');
     bar.style.width = '0%';
-    let progress = 0;
-    const progressTimer = setInterval(() => {
-      progress = Math.min(progress + 5, 92);
-      bar.style.width = progress + '%';
-    }, 700);
-
-    // v2 管线要嵌套语义,扁平 parsed 作兜底(测试钩子/旧缓存)
-    const rawParsed = (currentBuildData.parsed && currentBuildData.parsed._raw_parsed)
-      || currentBuildData.parsed;
-
-    const payload = {
-      parsed_data:   rawParsed,
-      product_image: productImageUrl,
-      scene_image:   sceneImageUrl  || '',   // 配景 → 传给 Doubao 做图生图参考
-      effect_image:  effectImageUrl || '',   // 效果图 → scene 屏背景覆盖
-      qr_image:      qrImageUrl     || '',   // 二维码 → cta 屏
-      theme_id:      currentThemeId,
-      style_pack:    currentStylePack,       // AI 风格包 (''=默认商业展厅, 'random'=盲盒)
-      random_style:  currentRandomStyle,     // 也可以布尔标志触发盲盒(冗余但容错)
-      ark_api_key:   arkKey,                 // 用户自带 key,服务端优先用这个,不消耗站长 ENV 额度
-      out_jpg_name:  `detail_v2_${Date.now()}.jpg`,
-      save_png:      false,
-    };
 
     try {
-      const resp = await postJson('/api/generate-ai-detail-html', payload);
-      clearInterval(progressTimer);
-      bar.style.width = '100%';
-      loading.style.display = 'none';
+      // 1. POST /execute → task_id + mode
+      const startResp = await postJson('/api/ai-refine-v2/execute', {
+        product_text:      productText,
+        product_image_url: productImageUrl,
+        product_title:     productTitle,
+      });
+      const taskId = startResp.task_id;
+      const mode = startResp.mode;
+      const modeBadge = mode === 'real' ? '✅ 真实 API (DeepSeek + GPT-image-2)'
+        : mode === 'partial-mock' ? '⚠️ 部分占位 (缺 DEEPSEEK_API_KEY)'
+        : '⚠️ 全占位 (服务端未配置 key, UI 自检模式)';
 
-      const url = resp.image_url + '?t=' + Date.now();
-      const info = `AI 精修版 · ${resp.segments.length} 屏 · ${resp.total_elapsed}s`;
+      // 2. 轮询 /status (2s/次, 最多 6 分钟)
+      const maxIter = 180;
+      let finalState = null;
+      for (let i = 0; i < maxIter; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const state = await fetch(`/api/ai-refine-v2/status/${taskId}`).then(r => r.json());
+        bar.style.width = (state.progress_pct || 0) + '%';
+        if (subText) subText.textContent = `${modeBadge} · ${state.progress_msg || state.status}`;
+        if (state.status === 'success' || state.status === 'failed') {
+          finalState = state;
+          break;
+        }
+      }
+      if (!finalState) throw new Error('轮询超时 (>6 分钟)');
+      if (finalState.status === 'failed') {
+        throw new Error(finalState.error || 'pipeline failed');
+      }
+
+      loading.style.display = 'none';
+      const url = finalState.assembled_url + '?t=' + Date.now();
+      const info = `AI 精修版 · ${finalState.blocks.length} 屏 · ${finalState.elapsed_s}s · ¥${finalState.cost_rmb.toFixed(2)}`;
       results.innerHTML = `
         <div style="text-align:center; margin-bottom:16px;">
           <span style="font-size:14px; color:#555; margin-right:12px;">${info}</span>
-          <a href="${resp.image_url}" download
+          <a href="${finalState.assembled_url}" download
             style="padding:6px 16px; background:#10b981; color:#fff;
             border:none; border-radius:6px; font-size:13px; text-decoration:none;">
             下载详情图
@@ -1377,7 +1379,6 @@
           <img src="${url}" style="width:100%; display:block;" />
         </div>`;
     } catch (e) {
-      clearInterval(progressTimer);
       loading.style.display = 'none';
       results.innerHTML = `<div style="text-align:center; color:#ef4444; padding:40px;">AI 精修失败: ${e.message}</div>`;
     }
