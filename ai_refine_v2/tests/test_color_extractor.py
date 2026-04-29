@@ -201,5 +201,40 @@ class TestEdgeCases(unittest.TestCase):
             self.assertIsNone(anchor)
 
 
+class TestSwatchRendering(unittest.TestCase):
+    """验色卡 PNG 渲染: 必须是合法 PNG bytes, 主色匹配 primary_hex."""
+
+    def test_swatch_is_valid_png(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as td:
+            p = Path(td) / "red.png"
+            img = Image.new("RGBA", (200, 200), (255, 0, 0, 255))
+            img.save(p, format="PNG")
+            anchor = extract_color_anchor(p)
+            self.assertIsNotNone(anchor)
+            self.assertTrue(anchor.swatch_png_bytes.startswith(b"\x89PNG"),
+                            "swatch 必须是合法 PNG (magic header)")
+            self.assertGreater(len(anchor.swatch_png_bytes), 100,
+                               "swatch PNG 不应太小 (空文件嫌疑)")
+
+    def test_swatch_color_matches_primary(self):
+        """色卡像素颜色应匹配 primary_hex (允许 PNG 量化误差)."""
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as td:
+            p = Path(td) / "blue.png"
+            img = Image.new("RGBA", (200, 200), (0, 0, 255, 255))
+            img.save(p, format="PNG")
+            anchor = extract_color_anchor(p)
+            self.assertIsNotNone(anchor)
+            # 解 swatch_png_bytes 验中心像素颜色
+            swatch_img = Image.open(io.BytesIO(anchor.swatch_png_bytes))
+            r, g, b = swatch_img.getpixel((swatch_img.width // 2, swatch_img.height // 2))[:3]
+            primary_r = int(anchor.primary_hex[1:3], 16)
+            primary_g = int(anchor.primary_hex[3:5], 16)
+            primary_b = int(anchor.primary_hex[5:7], 16)
+            self.assertEqual((r, g, b), (primary_r, primary_g, primary_b),
+                             "swatch 中心像素必须等于 primary_hex")
+
+
 if __name__ == "__main__":
     unittest.main()

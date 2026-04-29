@@ -109,6 +109,22 @@ def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
     return "#{:02X}{:02X}{:02X}".format(*rgb)
 
 
+def _render_swatch_png(hex_color: str, size: int = 512) -> bytes:
+    """渲染纯色色卡 PNG bytes (in-memory).
+
+    用于 image_urls[1], gpt-image-2 双图视觉锚定.
+    PNG 在写盘前不落盘, 全程 io.BytesIO.
+    """
+    import io
+    r = int(hex_color[1:3], 16)
+    g = int(hex_color[3:5], 16)
+    b = int(hex_color[5:7], 16)
+    img = Image.new("RGB", (size, size), (r, g, b))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
 def extract_color_anchor(
     cutout_path: str | Path,
     *,
@@ -154,8 +170,11 @@ def extract_color_anchor(
         while len(palette_hex) < 3:
             palette_hex.append(primary_hex)
 
-        # swatch 在 Task 7 实现, 暂用占位
-        swatch_bytes = b""
+        # 渲染色卡 PNG bytes (Task 7)
+        try:
+            swatch_bytes = _render_swatch_png(primary_hex, size=swatch_size)
+        except Exception:
+            swatch_bytes = b""  # 渲染失败仍允许返 anchor (走 B1 only)
 
         return ColorAnchor(
             primary_hex=primary_hex,
