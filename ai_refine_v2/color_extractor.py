@@ -54,6 +54,37 @@ def _filter_background_pixels(img: Image.Image) -> list[tuple[int, int, int]]:
     return out
 
 
+def _kmeans_via_quantize(
+    pixels: list[tuple[int, int, int]],
+    k: int = 5,
+) -> list[tuple[tuple[int, int, int], int]]:
+    """用 Pillow Image.quantize MEDIANCUT 做 k-means 替代品.
+
+    返回 [(centroid_rgb, pixel_count), ...] 按 pixel_count 降序.
+    """
+    if not pixels:
+        return []
+    n = len(pixels)
+    img = Image.new("RGB", (n, 1))
+    img.putdata(pixels)
+    quantized = img.quantize(colors=k, method=Image.Quantize.MEDIANCUT)
+    palette_flat = quantized.getpalette() or []
+    indices = list(quantized.getdata())
+    from collections import Counter
+    counts = Counter(indices)
+    out: list[tuple[tuple[int, int, int], int]] = []
+    for idx, cnt in counts.most_common():
+        if idx * 3 + 2 >= len(palette_flat):
+            continue
+        rgb = (palette_flat[idx * 3], palette_flat[idx * 3 + 1], palette_flat[idx * 3 + 2])
+        out.append((rgb, cnt))
+    return out
+
+
+def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
+    return "#{:02X}{:02X}{:02X}".format(*rgb)
+
+
 def extract_color_anchor(
     cutout_path: str | Path,
     *,
@@ -83,8 +114,30 @@ def extract_color_anchor(
         non_bg = _filter_background_pixels(img)
         if len(non_bg) < min_non_bg_pixels:
             return None
-    except (UnidentifiedImageError, OSError, Exception):
-        return None
 
-    # Task 3 在这里加 quantize 算主色, 暂时仍返 None
-    return None
+        clusters = _kmeans_via_quantize(non_bg, k=5)
+        if not clusters:
+            return None
+
+        primary_rgb, primary_count = clusters[0]
+        confidence = primary_count / len(non_bg)
+        if confidence < min_confidence:
+            return None
+
+        primary_hex = _rgb_to_hex(primary_rgb)
+        palette_hex = [_rgb_to_hex(rgb) for rgb, _ in clusters[:3]]
+        # 不足 3 簇时填充
+        while len(palette_hex) < 3:
+            palette_hex.append(primary_hex)
+
+        # swatch 在 Task 7 实现, 暂用占位
+        swatch_bytes = b""
+
+        return ColorAnchor(
+            primary_hex=primary_hex,
+            palette_hex=palette_hex,
+            confidence=confidence,
+            swatch_png_bytes=swatch_bytes,
+        )
+    except Exception:  # 按 spec §5.1: 任何异常 → 返 None, 不外抛
+        return None

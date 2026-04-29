@@ -65,5 +65,49 @@ class TestBackgroundFilter(unittest.TestCase):
             self.assertIsNone(anchor, "纯白 JPG 应返 None (产品像素被全部当背景滤掉)")
 
 
+class TestPrimaryColorExtraction(unittest.TestCase):
+    """验 quantize 主色 + palette + confidence."""
+
+    def _save_solid(self, td: Path, name: str, rgb: tuple[int, int, int]) -> Path:
+        p = td / name
+        img = Image.new("RGBA", (200, 200), (*rgb, 255))
+        img.save(p, format="PNG")
+        return p
+
+    def _hex_distance(self, hex1: str, hex2: str) -> float:
+        """欧式距离, 单位 0-255 通道."""
+        r1, g1, b1 = int(hex1[1:3], 16), int(hex1[3:5], 16), int(hex1[5:7], 16)
+        r2, g2, b2 = int(hex2[1:3], 16), int(hex2[3:5], 16), int(hex2[5:7], 16)
+        return ((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2) ** 0.5
+
+    def test_solid_red_primary_extracted(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as td:
+            p = self._save_solid(Path(td), "red.png", (255, 0, 0))
+            anchor = extract_color_anchor(p)
+            self.assertIsNotNone(anchor, "纯红 cutout 应能算出主色")
+            dist = self._hex_distance(anchor.primary_hex, "#FF0000")
+            self.assertLess(dist, 10, f"primary_hex {anchor.primary_hex} 偏离 #FF0000 太远 (dist={dist:.1f})")
+
+    def test_solid_red_palette_size(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as td:
+            p = self._save_solid(Path(td), "red.png", (255, 0, 0))
+            anchor = extract_color_anchor(p)
+            self.assertIsNotNone(anchor)
+            self.assertEqual(len(anchor.palette_hex), 3, "palette 必须 top-3")
+            self.assertEqual(anchor.palette_hex[0], anchor.primary_hex,
+                             "palette[0] 必须等于 primary_hex")
+
+    def test_solid_red_confidence_high(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as td:
+            p = self._save_solid(Path(td), "red.png", (255, 0, 0))
+            anchor = extract_color_anchor(p)
+            self.assertIsNotNone(anchor)
+            self.assertGreater(anchor.confidence, 0.95,
+                               f"纯色产品 confidence 应近 1.0, 实际 {anchor.confidence:.3f}")
+
+
 if __name__ == "__main__":
     unittest.main()
