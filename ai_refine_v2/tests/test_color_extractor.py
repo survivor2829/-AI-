@@ -177,5 +177,29 @@ class TestPrimaryColorExtraction(unittest.TestCase):
                             f"palette {anchor.palette_hex} 应含黑色 secondary (轮子)")
 
 
+class TestEdgeCases(unittest.TestCase):
+    """异常路径不应抛 exception, 全部返 None 让调用方走 fallback."""
+
+    def test_nonexistent_path_returns_none(self):
+        anchor = extract_color_anchor("/nonexistent/path/to/file.png")
+        self.assertIsNone(anchor)
+
+    def test_corrupted_png_returns_none(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as td:
+            p = Path(td) / "corrupted.png"
+            p.write_bytes(b"\x89PNG\r\n\x1a\nNOT_A_REAL_PNG_FILE")
+            anchor = extract_color_anchor(p)
+            self.assertIsNone(anchor)
+
+    def test_zero_byte_file_returns_none(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as td:
+            p = Path(td) / "empty.png"
+            p.write_bytes(b"")
+            anchor = extract_color_anchor(p)
+            self.assertIsNone(anchor)
+
+
 if __name__ == "__main__":
     unittest.main()
