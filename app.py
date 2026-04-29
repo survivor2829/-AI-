@@ -4487,6 +4487,20 @@ def ai_refine_v2_execute():
     if not product_text and not product_title:
         return jsonify({"error": "product_text 和 product_title 至少给一个"}), 400
 
+    # v3.2 fix (2026-04-29): 前端传的是 Web URL path (/static/uploads/xxx.png),
+    # 但 _to_data_url 当 filesystem path 读 — docker 容器内真实路径是 /app/static/...
+    # 不转换会导致 cutout 转换静默失败 → 12 屏全降级纯文生 → 产品形态 100% 脑补.
+    # 这才是 v3.2 上生产后用户报"产品形态跟参考图不一样"的根因.
+    if product_image_url.startswith("/static/"):
+        rel = product_image_url[len("/static/"):]
+        fs_path = Path(app.static_folder) / rel
+        if fs_path.is_file():
+            product_image_url = str(fs_path)
+        else:
+            return jsonify({
+                "error": f"产品主图文件不存在: {fs_path} (URL: {data.get('product_image_url')!r}). 请重新上传."
+            }), 400
+
     from ai_refine_v2 import pipeline_runner
     deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     gpt_image_key = os.environ.get("GPT_IMAGE_API_KEY", "").strip()
