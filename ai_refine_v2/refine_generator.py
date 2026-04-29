@@ -562,17 +562,30 @@ def generate(
 
 _V2_SIZE_DEFAULT = "3:4"  # PRD §阶段二: 1536×2048 锁定
 
-# v3 (PRD AI_refine_v3.1 §5.2): 喂 cutout 屏的 prompt 开头注入此句, 让 gpt-image-2
-# 知道 image_urls[0] 是产品参考图, 必须保留产品 silhouette / 主色 / 关键部件.
-# 不喂图屏不注入 (没 image_urls, 注入这句反而误导模型). 跟 cutout_whitelist 联动.
+# v3 (PRD AI_refine_v3.1 §5.2): 喂 cutout 屏的 prompt 开头注入注入语,
+# 让 gpt-image-2 知道 image_urls[0] 是产品参考图, 必须保留产品 silhouette / 主色 / 关键部件.
 #
-# v3.2.1 (2026-04-29 vision-first 转向, 用户实测 HE180/10 浅白灰被染浅灰黄):
-# 之前的版本仍写 "preserve primary color" 但 prompt 文本里 DeepSeek 还会写
-# "the product is industrial blue-gray" 这种颜色字面值, gpt-image-2 看到
-# 文字描述跟自己 vision bias (清洗车 = 黄) 撕扯, 结果按 bias 走染黄.
-# 修法: 把 Image 1 立成"颜色权威", 显式告诉模型: 文字里写的颜色不算数,
-# 看图为准. 反向锚定 vision-first 而不是 text-first.
-_INJECTION_PREFIX_V3 = (
+# v3.2.1 (2026-04-29 vision-first 转向): 推倒 text-first 颜色描述路径
+# v3.2.2 (2026-04-29 双图锚定): PIL 像素级测量主色 hex → 数值锚 (B1) + 双图 (B3)
+#   - extract_color_anchor 成功 → 用 _INJECTION_PREFIX_V3_TEMPLATE.format(...)
+#   - 失败 → 退到 _INJECTION_PREFIX_V3_LEGACY (v3.2.1 单图无 hex)
+
+# v3.2.2 双图 + hex 数值锚 (anchor 提取成功路径)
+_INJECTION_PREFIX_V3_TEMPLATE = (
+    "Image 1 is the AUTHORITATIVE source for the product's color, silhouette, "
+    "and key parts. Image 2 is a pure-color reference swatch showing the "
+    "product's exact primary color {primary_hex} (extracted by pixel sampling, "
+    "not estimated from text). The product's palette is {palette_str}. "
+    "DO NOT render Image 2 as a visible element in output — it is a color "
+    "reference for matching only. Match the product's color to {primary_hex} "
+    "EXACTLY. If text below mentions any color that conflicts with Image 1 / "
+    "Image 2, IGNORE the text. Do not substitute the product's color based "
+    "on training data or category conventions. Preserve silhouette, parts, "
+    "and proportions exactly. "
+)
+
+# v3.2.1 单图无 hex (anchor 失败 fallback)
+_INJECTION_PREFIX_V3_LEGACY = (
     "Image 1 is the AUTHORITATIVE source for the product's color, "
     "silhouette, and key parts. Match Image 1 exactly. If the text below "
     "mentions a color that conflicts with Image 1, IGNORE the text — "
@@ -580,6 +593,9 @@ _INJECTION_PREFIX_V3 = (
     "training data or category conventions; use only the exact RGB hue "
     "shown in Image 1. Preserve silhouette, parts, and proportions exactly. "
 )
+
+# 向下兼容: 旧名指向 LEGACY, 等所有引用迁完后删
+_INJECTION_PREFIX_V3 = _INJECTION_PREFIX_V3_LEGACY
 
 # v3.iter2 默认喂图白名单: 12 个 role 中除 FAQ 外全喂.
 # 从 _VALID_ROLES_V2 单一来源派生, 避免 13th 屏型加入时手动同步漂移.
