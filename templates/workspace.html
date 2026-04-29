@@ -1333,10 +1333,14 @@
 
     try {
       // 1. POST /execute → task_id + mode
+      // schema_mode='v2' (PRD v3.2): 走 plan_v2 (DeepSeek 12 屏型 + 大疆风高级灰
+      // + lifestyle_demo 必出 + 商业承诺法律合规 + 产品色保真) → generate_v2.
+      // 不传 schema_mode 后端默认 v1, 走老的 selling_points + visual_type 路径.
       const startResp = await postJson('/api/ai-refine-v2/execute', {
         product_text:      productText,
         product_image_url: productImageUrl,
         product_title:     productTitle,
+        schema_mode:       'v2',
       });
       const taskId = startResp.task_id;
       const mode = startResp.mode;

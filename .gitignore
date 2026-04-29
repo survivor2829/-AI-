@@ -63,6 +63,10 @@ stage5_real_test/
 # 阶段六 PRD v3.1 真测产物 (跟 stage5 同款规则, PRD §9.7 硬要求)
 stage6_real_test/
 
+# 阶段六真调跑日志 (临时, 1 周监控期后清)
+stage6_*.log
+app_dev.log
+
 # 系统文件
 .DS_Store
 Thumbs.db
