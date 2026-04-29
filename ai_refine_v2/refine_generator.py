@@ -162,8 +162,12 @@ def _submit_image_task(
         "thinking": thinking,
         "reasoning_effort": thinking,
     }
+    # v3.2.2: image_data_url 可以是 str (单图) 或 list[str] (双图: cutout + swatch)
     if image_data_url:
-        payload["image_urls"] = [image_data_url]
+        if isinstance(image_data_url, list):
+            payload["image_urls"] = image_data_url
+        else:
+            payload["image_urls"] = [image_data_url]
 
     code, body = _http_post_json(
         f"{_APIMART_BASE}/images/generations", payload, api_key,
@@ -247,6 +251,13 @@ def _to_data_url(path_or_url: str) -> str:
     if not mime:
         mime = "image/png"
     b64 = base64.b64encode(raw).decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
+
+def _to_data_url_from_bytes(png_bytes: bytes, mime: str = "image/png") -> str:
+    """把 PNG bytes 转 data URL (色卡用, 全程内存)."""
+    import base64
+    b64 = base64.b64encode(png_bytes).decode("ascii")
     return f"data:{mime};base64,{b64}"
 
 
@@ -640,6 +651,7 @@ def _generate_one_block_v2(
     max_retries: int,
     thinking: str,
     size: str,
+    color_anchor: Optional[ColorAnchor] = None,  # v3.2.2 新增
 ) -> tuple[BlockResult, float]:
     """v2 单 block 生成. prompt 直接用 plan_v2 已渲染好的, 不再模板化.
 
@@ -666,18 +678,36 @@ def _generate_one_block_v2(
             0.0,
         )
 
-    # v3 (PRD AI_refine_v3.1 §5.2): 喂图屏 prompt 开头注入 INJECTION_PREFIX,
-    # 让 gpt-image-2 把 image_urls[0] 当形态锚点而非装饰品.
-    # 不喂图屏 (image_data_url is None) 不注入, 否则误导模型脑补不存在的 Image 1.
+    # v3.2.2 INJECTION 三档分支:
+    #   anchor 成功 + ENV=on (默认) → TEMPLATE (双图 + hex 文字锚)
+    #   anchor 成功 + ENV=b1_only   → TEMPLATE (单图 + hex 文字锚)
+    #   anchor 失败 / ENV=off       → LEGACY (v3.2.1 单图无 hex)
     effective_prompt = prompt
+    effective_image_urls: Optional[object] = image_data_url  # str | list[str] | None
+
     if image_data_url:
-        effective_prompt = _INJECTION_PREFIX_V3 + prompt
+        env_mode = os.getenv("COLOR_ANCHOR_DUAL_IMAGE", "on").strip().lower()
+        if color_anchor and env_mode != "off":
+            palette_str = ", ".join(color_anchor.palette_hex)
+            effective_prompt = _INJECTION_PREFIX_V3_TEMPLATE.format(
+                primary_hex=color_anchor.primary_hex,
+                palette_str=palette_str,
+            ) + prompt
+            # B3 双图: 仅 ENV=on 且 swatch 渲染成功
+            if env_mode == "on" and color_anchor.swatch_png_bytes:
+                swatch_data_url = _to_data_url_from_bytes(color_anchor.swatch_png_bytes)
+                effective_image_urls = [image_data_url, swatch_data_url]
+            else:
+                effective_image_urls = image_data_url  # B1 only: 单图 + hex 文字锚
+        else:
+            effective_prompt = _INJECTION_PREFIX_V3_LEGACY + prompt
+            effective_image_urls = image_data_url
 
     last_err = None
     attempts = 0
     while attempts <= max_retries:
         try:
-            url = api_call_fn(effective_prompt, image_data_url, api_key, thinking, size)
+            url = api_call_fn(effective_prompt, effective_image_urls, api_key, thinking, size)
             return (
                 BlockResult(
                     block_id=bid, visual_type=vt,
@@ -819,6 +849,7 @@ def generate_v2(
     hero_res, hero_cost = _generate_one_block_v2(
         hero_block, _cutout_for(hero_block), use_key, call_fn,
         max_retries_hero, thinking, size,
+        color_anchor=color_anchor,
     )
     result.blocks.append(hero_res)
     result.total_cost_rmb += hero_cost * scale
@@ -848,6 +879,7 @@ def generate_v2(
                 _generate_one_block_v2,
                 b, _cutout_for(b), use_key, call_fn,
                 max_retries_sp, thinking, size,
+                color_anchor,
             ): b
             for b in sp_blocks
         }
