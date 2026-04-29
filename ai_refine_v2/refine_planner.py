@@ -299,8 +299,27 @@ def plan(
 _TEMPERATURE_V2 = 0.7  # 比 v1 的 0.1 高, 让 style_dna 有创意 (不再是抽取任务)
 _MAX_TOKENS_V2 = 8192  # 6-10 屏 × 800-2000 字符 prompt → 估 6000-15000 token
 _MIN_PROMPT_LEN_V2 = 200  # screens[i].prompt 短于此即"SEO 列表非导演视角"
-_MIN_SCREEN_COUNT_V2 = 6
-_MAX_SCREEN_COUNT_V2 = 10
+_MIN_SCREEN_COUNT_V2 = 8   # v3 (PRD AI_refine_v3.1): 6 → 8
+_MAX_SCREEN_COUNT_V2 = 15  # v3 (PRD AI_refine_v3.1): 10 → 15
+
+# v3 (PRD AI_refine_v3.1) 新增: role 白名单
+# v3.iter2 (2026-04-29 Scott 4/9 反馈): 11 → 12 屏型, +lifestyle_demo (B2B 必备)
+_VALID_ROLES_V2 = frozenset({
+    "hero", "feature_wall", "scenario", "scenario_grid_2x3",
+    "vs_compare", "detail_zoom", "icon_grid_radial",
+    "spec_table", "value_story", "brand_quality", "FAQ",
+    "lifestyle_demo",  # v3.iter2: 真人 + 产品 + 实景, A 暖色路线
+})
+
+# v3 必出屏型 (任何产品都生成 — 缺任何一个 = schema 不合规)
+# v3.2 精修 (Scott 反馈 1): 3 → 4 必出屏, +lifestyle_demo (DeepSeek 自由判断
+# 时会跳过 lifestyle_demo, 但 Scott 强需"产品使用效果展示", 必出强约束)
+_REQUIRED_ROLES_V2 = frozenset({
+    "hero", "brand_quality", "spec_table", "lifestyle_demo",
+})
+
+# v3 SCOTT_OVERRIDE 默认屏型 (deliberate_dna_divergence 必须 true)
+_SCOTT_OVERRIDE_ROLES_V2 = frozenset({"spec_table", "FAQ"})
 
 
 def _validate_schema_v2(parsed: dict) -> list[str]:
@@ -396,6 +415,52 @@ def _validate_schema_v2(parsed: dict) -> list[str]:
                     f"screens[{i}].prompt 过短 ({len(p)} < {_MIN_PROMPT_LEN_V2} 字符), "
                     "疑非导演视角"
                 )
+
+            # v3 (PRD AI_refine_v3.1): role 必须在白名单内
+            # v3.iter2: 11 → 12 屏型 (+lifestyle_demo)
+            role = s.get("role")
+            if isinstance(role, str) and role and role not in _VALID_ROLES_V2:
+                w.append(
+                    f"screens[{i}].role 非法 (必须在 12 屏型内): {role!r}, "
+                    f"合法 = {sorted(_VALID_ROLES_V2)}"
+                )
+
+            # v3: SCOTT_OVERRIDE 屏型 (spec_table / FAQ) 必须显式 deliberate_dna_divergence=true
+            if role in _SCOTT_OVERRIDE_ROLES_V2:
+                if s.get("deliberate_dna_divergence") is not True:
+                    w.append(
+                        f"screens[{i}] role={role!r} 是 SCOTT_OVERRIDE 屏型, "
+                        f"必须设 deliberate_dna_divergence=true (准则 9)"
+                    )
+
+        # v3: 必出屏型 (hero / brand_quality / spec_table) 必须各出现 1 次
+        present_roles_list = [
+            s.get("role") for s in screens if isinstance(s, dict)
+        ]
+        present_roles = set(present_roles_list)
+        missing = _REQUIRED_ROLES_V2 - present_roles
+        if missing:
+            w.append(
+                f"必出屏型缺失: {sorted(missing)}. "
+                f"v3 准则 3 要求 hero/brand_quality/spec_table 各 1 屏"
+            )
+
+        # v3.iter2 (PRD §13.4 自洽迭代, Scott 改动 5): 屏型唯一性硬约束
+        # 同一 role 在一份详情页里最多出现 1 次 (DeepSeek 第 1 次跑 detail_zoom × 2)
+        valid_roles_list = [
+            r for r in present_roles_list
+            if isinstance(r, str) and r in _VALID_ROLES_V2
+        ]
+        if len(set(valid_roles_list)) != len(valid_roles_list):
+            from collections import Counter
+            dup = sorted(
+                role for role, n in Counter(valid_roles_list).items() if n > 1
+            )
+            w.append(
+                f"屏型重复: {dup} 出现 ≥ 2 次. "
+                f"v3.iter2 准则 11 要求每个 role 在一份详情页里最多 1 次. "
+                f"如需多个细节屏请用不同屏型 (detail_zoom + icon_grid_radial)."
+            )
 
     return w
 

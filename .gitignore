@@ -60,6 +60,9 @@ stage1_eval_output/
 # + raw_url 救图链接 + assembled.png. 是阶段五一次性真测产物, 不进仓库, 重做要重新烧钱)
 stage5_real_test/
 
+# 阶段六 PRD v3.1 真测产物 (跟 stage5 同款规则, PRD §9.7 硬要求)
+stage6_real_test/
+
 # 系统文件
 .DS_Store
 Thumbs.db

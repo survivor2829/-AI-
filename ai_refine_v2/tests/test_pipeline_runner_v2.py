@@ -326,8 +326,9 @@ class TestV2MockMode(unittest.TestCase):
         self.assertEqual(warnings, [],
                          f"v2 mock planning 不合规 schema_v2: {warnings}")
         self.assertEqual(planning["product_meta"]["name"], "MyProduct")
-        self.assertEqual(planning["screen_count"], 6)
-        self.assertEqual(len(planning["screens"]), 6)
+        # v3 (PRD AI_refine_v3.1): 6 → 8 屏 (含必出 3 屏)
+        self.assertEqual(planning["screen_count"], 8)
+        self.assertEqual(len(planning["screens"]), 8)
 
     def test_copy_mock_images_v2_uses_v2_block_id_format(self):
         """_copy_mock_images_v2 返回 v2 风格 blocks (block_id 'screen_NN_role')."""
@@ -362,8 +363,9 @@ class TestV2MockMode(unittest.TestCase):
                 state = pipeline_runner._TASKS[task_id]
                 self.assertEqual(state.status, "success",
                                  f"应 success, 实际 {state.status}; error={state.error}")
-                self.assertEqual(state.planning.get("screen_count"), 6)
-                self.assertEqual(len(state.blocks), 6)
+                # v3 (PRD AI_refine_v3.1): mock screen_count 6 → 8
+                self.assertEqual(state.planning.get("screen_count"), 8)
+                self.assertEqual(len(state.blocks), 8)
                 self.assertTrue(all(b.get("placeholder") for b in state.blocks),
                                 "全 mock 模式下所有 blocks 应 placeholder=True")
                 self.assertEqual(state.cost_rmb, 0.0, "mock 模式下 cost=0")

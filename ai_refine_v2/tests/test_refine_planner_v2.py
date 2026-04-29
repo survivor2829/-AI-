@@ -22,18 +22,60 @@ from ai_refine_v2.refine_planner import (
 )
 
 
-# ── 黄金 fixture (合规的 v2 schema dict) ────────────────────────────
-def _v2_sample(screen_count: int = 7) -> dict:
-    """一份合规的 v2 schema 样本. 测试通过 deepcopy + 改字段做边界 case."""
+# ── 黄金 fixture (合规的 v3 schema dict, PRD AI_refine_v3.1) ────────
+# v3 (2026-04-28 deliberate_iron_rule_5_break):
+#   - default screen_count 7 → 8 (新 schema 下限)
+#   - roles 序列重写: 8 屏覆盖必出 3 屏 (hero/brand_quality/spec_table) + 5 高优 role
+#   - 9-11 屏: scenario_grid_2x3 / icon_grid_radial / FAQ (3 个新屏型)
+#   - 12-15 屏: 循环非 SCOTT_OVERRIDE role
+#   - SCOTT_OVERRIDE 屏 (spec_table / FAQ) 必须 deliberate_dna_divergence=true
+#   - unified_visual_treatment 改用 v3 关键词 (warm golden-hour + industrial cool tones)
+
+# v3 默认 8 屏 role 序列 (v3.2 精修: 含必出 4 屏 hero/brand_quality/spec_table/lifestyle_demo)
+_V3_DEFAULT_ROLES = [
+    "hero",            # 1, 必出
+    "feature_wall",    # 2
+    "scenario",        # 3
+    "vs_compare",      # 4
+    "detail_zoom",     # 5
+    "lifestyle_demo",  # 6, 必出 (v3.2 精修, Scott 反馈 1)
+    "brand_quality",   # 7, 必出
+    "spec_table",      # 8, 必出 + SCOTT_OVERRIDE
+]
+# v3.iter2 (Scott 4/9 反馈): 11 → 12 屏型, +lifestyle_demo
+# v3.2 精修: lifestyle_demo 移到 default 8 屏, 9-12 屏改用其他 4 个屏型
+# screen_count 9-12 时增补的新屏型 (4 个 v3.2 全部用上)
+_V3_EXTRA_ROLES = [
+    "scenario_grid_2x3",
+    "icon_grid_radial",
+    "FAQ",
+    "value_story",  # v3.2: 从 default 8 屏移到 extra (lifestyle_demo 占了 idx 6)
+]
+# screen_count 13-15 时循环复用 — 准则 11 屏型唯一性硬约束会触发重复警告
+# (用于负向测试 TestV3iter2RoleUniqueness, 不是 happy path)
+_V3_REPEAT_POOL = ["feature_wall", "scenario", "vs_compare", "detail_zoom"]
+
+
+def _v2_sample(screen_count: int = 8) -> dict:
+    """一份合规的 v3.iter2 schema 样本 (PRD AI_refine_v3.1 + Scott iter2).
+    测试通过 deepcopy + 改字段做边界 case.
+
+    支持 screen_count [8, 15]:
+      - 1-8 屏 (合规): _V3_DEFAULT_ROLES (含必出 3 屏 hero/brand_quality/spec_table)
+      - 9-12 屏 (合规): _V3_EXTRA_ROLES (4 个 v3.iter2 新屏型, 全部唯一)
+      - 13-15 屏 (违规, 故意): _V3_REPEAT_POOL 循环复用, 触发准则 11 重复警告
+    """
     screens = []
     for i in range(1, screen_count + 1):
-        screens.append({
+        if i <= 8:
+            role = _V3_DEFAULT_ROLES[i - 1]
+        elif i <= 12:
+            role = _V3_EXTRA_ROLES[i - 9]
+        else:
+            role = _V3_REPEAT_POOL[(i - 13) % len(_V3_REPEAT_POOL)]
+        screen = {
             "idx": i,
-            "role": [
-                "hero", "feature_wall", "scenario", "vs_compare",
-                "detail_zoom", "spec_table", "value_story",
-                "brand_quality", "value_story", "brand_quality",
-            ][(i - 1) % 10],
+            "role": role,
             "title": f"屏 {i} 标题",
             # 长 prompt (> 200 字符), 模拟导演视角
             "prompt": (
@@ -45,7 +87,11 @@ def _v2_sample(screen_count: int = 7) -> dict:
                 "deep slate-blue sky transitions to amber on horizon. Magazine-cover "
                 f"composition with editorial confidence. (screen {i})"
             ),
-        })
+        }
+        # v3: SCOTT_OVERRIDE 屏型 (spec_table / FAQ) 必须设 deliberate_dna_divergence=true
+        if role in ("spec_table", "FAQ"):
+            screen["deliberate_dna_divergence"] = True
+        screens.append(screen)
     return {
         "product_meta": {
             "name": "DZ600M 无人水面清洁机",
@@ -63,7 +109,15 @@ def _v2_sample(screen_count: int = 7) -> dict:
             "composition_style": "asymmetric editorial layout with large negative space top-left",
             "mood": "confident B2B premium industrial mood",
             "typography_hint": "modern condensed sans-serif headlines",
-            "unified_visual_treatment": "documentary photo-realism dominant; HUD overlays on photo backgrounds; shared film grain + color grading + typography family",
+            # v3.2: unified_visual_treatment 改用大疆风高级灰关键词
+            # (v3.iter2 warm golden-hour + industrial cool tones 已废弃)
+            "unified_visual_treatment": (
+                "DJI/Apple-inspired premium minimalist aesthetic; "
+                "sophisticated grayscale palette as dominant base "
+                "(#F5F5F7 light gray, #2C2C2E dark gray accents, #86868B mid gray text); "
+                "neutral cool studio lighting; product retains EXACT original color, "
+                "NO ambient color shifting; high-end e-commerce detail page aesthetic."
+            ),
         },
         "screen_count": screen_count,
         "screens": screens,
@@ -91,10 +145,17 @@ class TestValidateSchemaV2Pass(unittest.TestCase):
     """合规样本应返空 warning list."""
 
     def test_minimal_valid_sample_no_warnings(self):
-        self.assertEqual(_validate_schema_v2(_v2_sample(screen_count=6)), [])
+        # v3 (PRD AI_refine_v3.1): 下限 6 → 8
+        self.assertEqual(_validate_schema_v2(_v2_sample(screen_count=8)), [])
 
-    def test_max_screens_10_no_warnings(self):
-        self.assertEqual(_validate_schema_v2(_v2_sample(screen_count=10)), [])
+    def test_max_unique_screens_12_no_warnings(self):
+        """v3.iter2: 12 屏型全部用上 (8 默认 + 4 新增) 仍合规, 不触发任何 warning.
+
+        历史: v3 是 max=15 + 11 屏型, 但 v3.iter2 加准则 11 屏型唯一硬约束后,
+        实际可达上限 = 12 屏 (与 12 个 role 一一对应). schema 仍允许 13-15
+        但 13+ 必触发"屏型重复"warning, 见 TestV3iter2RoleUniqueness.
+        """
+        self.assertEqual(_validate_schema_v2(_v2_sample(screen_count=12)), [])
 
 
 class TestValidateSchemaV2ProductMeta(unittest.TestCase):
@@ -177,16 +238,19 @@ class TestValidateSchemaV2Screens(unittest.TestCase):
     """screens 数组破坏."""
 
     def test_screen_count_below_min(self):
+        # v3 (PRD AI_refine_v3.1): 下限 6 → 8, 测 7 触发 [8,15] 警告
         d = _v2_sample()
-        d["screen_count"] = 5
-        d["screens"] = d["screens"][:5]
+        d["screen_count"] = 7
+        d["screens"] = d["screens"][:7]
         w = _validate_schema_v2(d)
-        self.assertTrue(any("screen_count" in x and "[6,10]" in x for x in w))
+        self.assertTrue(any("screen_count" in x and "[8,15]" in x for x in w))
 
     def test_screen_count_above_max(self):
-        d = _v2_sample(screen_count=10)
-        d["screen_count"] = 11
-        # screens 仍 10 个, 触发 "长度不一致"
+        # v3 (PRD AI_refine_v3.1): 上限 10 → 15, 测 16 触发警告
+        # v3.iter2 fixture: 用 12 屏 (12 个唯一 role 上限) 触发"长度不一致"
+        d = _v2_sample(screen_count=12)
+        d["screen_count"] = 16
+        # screens 仍 12 个, 触发 "长度不一致"
         w = _validate_schema_v2(d)
         self.assertTrue(any("screen_count" in x for x in w))
 
@@ -317,7 +381,8 @@ class TestPlanV2HappyPath(unittest.TestCase):
         self.assertIn("混合", SYSTEM_PROMPT_V2)
         # 关键 prompt 词汇 (英文, 防 DeepSeek 写成中文)
         self.assertIn("triptych", SYSTEM_PROMPT_V2)                  # scenario
-        self.assertIn("split-screen comparison", SYSTEM_PROMPT_V2)   # vs_compare
+        # v3 (PRD AI_refine_v3.1): vs_compare 从 "split-screen" 改 "side-by-side card comparison"
+        self.assertIn("side-by-side card comparison", SYSTEM_PROMPT_V2)  # vs_compare
         self.assertIn("HUD overlays", SYSTEM_PROMPT_V2)              # value_story
         self.assertIn("grid layout", SYSTEM_PROMPT_V2)               # feature_wall
 
@@ -367,7 +432,7 @@ class TestPlanV2RetryLogic(unittest.TestCase):
     def test_retries_on_schema_invalid_then_raises(self):
         """两次 schema 不合规 → PlannerError."""
         bad = _v2_sample()
-        bad["screen_count"] = 3  # 违反 [6,10]
+        bad["screen_count"] = 3  # v3 (PRD AI_refine_v3.1): 违反 [8,15]
         bad["screens"] = bad["screens"][:3]
         calls = {"n": 0}
 
@@ -456,6 +521,357 @@ class TestPlanV2ExportPath(unittest.TestCase):
         from ai_refine_v2 import plan as p1, PlannerError as PE  # noqa: F401
         self.assertTrue(callable(p1))
         self.assertTrue(issubclass(PE, RuntimeError))
+
+
+# ──────────────────────────────────────────────────────────────────
+# D: v3 (PRD AI_refine_v3.1) 新增 schema 校验 + SYSTEM_PROMPT_V2 v3 关键词
+# ──────────────────────────────────────────────────────────────────
+class TestV3RoleEnum(unittest.TestCase):
+    """v3.iter2 role 白名单 (12 屏型, +lifestyle_demo)."""
+
+    def test_invalid_role_triggers_warning(self):
+        d = _v2_sample()
+        d["screens"][1]["role"] = "fake_role_xyz"
+        w = _validate_schema_v2(d)
+        self.assertTrue(
+            any("非法" in x and "12 屏型" in x for x in w),
+            f"非法 role 应触发警告. warnings={w}",
+        )
+
+    def test_all_12_roles_in_valid_set(self):
+        """v3.iter2 _VALID_ROLES_V2 必须有 12 个 role, 含 v3.iter2 新 +1 lifestyle_demo."""
+        from ai_refine_v2.refine_planner import _VALID_ROLES_V2
+        self.assertEqual(
+            len(_VALID_ROLES_V2), 12,
+            f"v3.iter2 应有 12 个合法 role, 实际 {len(_VALID_ROLES_V2)}",
+        )
+        for new_role in (
+            "scenario_grid_2x3", "icon_grid_radial", "FAQ", "lifestyle_demo",
+        ):
+            with self.subTest(role=new_role):
+                self.assertIn(new_role, _VALID_ROLES_V2)
+
+    def test_fixture_with_all_extra_roles_no_role_warning(self):
+        """12 屏 fixture 涵盖 9-12 屏的 4 个 v3.iter2 新 role, 不触发非法警告."""
+        d = _v2_sample(screen_count=12)
+        w = _validate_schema_v2(d)
+        self.assertFalse(
+            any("非法" in x for x in w),
+            f"12 屏 fixture 含全 v3.iter2 新 role, 不应触发非法警告. warnings={w}",
+        )
+
+
+class TestV3RequiredRoles(unittest.TestCase):
+    """v3.2 精修必出屏型 (hero / brand_quality / spec_table / lifestyle_demo)."""
+
+    def test_missing_hero_triggers_warning(self):
+        d = _v2_sample()
+        d["screens"][0]["role"] = "scenario_grid_2x3"  # idx=1 hero 改成非必出
+        w = _validate_schema_v2(d)
+        self.assertTrue(
+            any("必出屏型缺失" in x and "hero" in x for x in w),
+            f"缺 hero 应触发警告. warnings={w}",
+        )
+
+    def test_missing_brand_quality_triggers_warning(self):
+        d = _v2_sample()
+        d["screens"][6]["role"] = "scenario_grid_2x3"  # idx=7 brand_quality 改
+        w = _validate_schema_v2(d)
+        self.assertTrue(
+            any("必出屏型缺失" in x and "brand_quality" in x for x in w),
+            f"缺 brand_quality 应触发警告. warnings={w}",
+        )
+
+    def test_missing_spec_table_triggers_warning(self):
+        d = _v2_sample()
+        d["screens"][7]["role"] = "scenario_grid_2x3"  # idx=8 spec_table 改
+        d["screens"][7].pop("deliberate_dna_divergence", None)
+        w = _validate_schema_v2(d)
+        self.assertTrue(
+            any("必出屏型缺失" in x and "spec_table" in x for x in w),
+            f"缺 spec_table 应触发警告. warnings={w}",
+        )
+
+    def test_missing_lifestyle_demo_triggers_warning(self):
+        """v3.2 精修 (Scott 反馈 1): lifestyle_demo 是第 4 必出屏, 缺失必触发警告."""
+        d = _v2_sample()
+        # idx=6 (索引 5) 在新 fixture 顺序是 lifestyle_demo, 改成非必出 role
+        d["screens"][5]["role"] = "scenario_grid_2x3"
+        w = _validate_schema_v2(d)
+        self.assertTrue(
+            any("必出屏型缺失" in x and "lifestyle_demo" in x for x in w),
+            f"缺 lifestyle_demo 应触发警告. warnings={w}",
+        )
+
+    def test_default_fixture_has_all_4_required(self):
+        """v3.2: default 8 屏 fixture 含全 4 必出屏型, 无缺失警告."""
+        d = _v2_sample()
+        w = _validate_schema_v2(d)
+        self.assertFalse(
+            any("必出屏型缺失" in x for x in w),
+            f"v3.2 default 8 屏 fixture 含全 4 必出屏型, 不应缺失. warnings={w}",
+        )
+
+    def test_required_roles_set_has_4_members(self):
+        """v3.2: _REQUIRED_ROLES_V2 应有 4 个 (3 个 v3 + lifestyle_demo)."""
+        from ai_refine_v2.refine_planner import _REQUIRED_ROLES_V2
+        self.assertEqual(
+            _REQUIRED_ROLES_V2,
+            frozenset({"hero", "brand_quality", "spec_table", "lifestyle_demo"}),
+        )
+
+
+class TestV3ScottOverrideDivergence(unittest.TestCase):
+    """v3 SCOTT_OVERRIDE 屏型 (spec_table / FAQ) 必须 deliberate_dna_divergence=true."""
+
+    def test_spec_table_without_divergence_triggers_warning(self):
+        d = _v2_sample()
+        # idx=8 (索引 7) 是 spec_table, 删掉 deliberate_dna_divergence
+        d["screens"][7].pop("deliberate_dna_divergence", None)
+        w = _validate_schema_v2(d)
+        self.assertTrue(
+            any("SCOTT_OVERRIDE" in x and "spec_table" in x for x in w),
+            f"spec_table 缺 deliberate_dna_divergence 应触发警告. warnings={w}",
+        )
+
+    def test_FAQ_without_divergence_triggers_warning(self):
+        # v3.iter2: 11 屏 fixture, idx=11 (索引 10) 是 FAQ (_V3_EXTRA_ROLES[2])
+        d = _v2_sample(screen_count=11)
+        d["screens"][10].pop("deliberate_dna_divergence", None)
+        w = _validate_schema_v2(d)
+        self.assertTrue(
+            any("SCOTT_OVERRIDE" in x and "FAQ" in x for x in w),
+            f"FAQ 缺 deliberate_dna_divergence 应触发警告. warnings={w}",
+        )
+
+    def test_divergence_false_treated_as_missing(self):
+        """deliberate_dna_divergence=False 也算未设 (必须 True)."""
+        d = _v2_sample()
+        d["screens"][7]["deliberate_dna_divergence"] = False
+        w = _validate_schema_v2(d)
+        self.assertTrue(
+            any("SCOTT_OVERRIDE" in x for x in w),
+            f"deliberate_dna_divergence=False 应等同 missing. warnings={w}",
+        )
+
+    def test_default_fixture_spec_table_has_divergence_true(self):
+        """default 8 屏 fixture spec_table 屏 deliberate_dna_divergence=True."""
+        d = _v2_sample()
+        spec_screen = next(s for s in d["screens"] if s["role"] == "spec_table")
+        self.assertEqual(spec_screen.get("deliberate_dna_divergence"), True)
+
+
+class TestV3SystemPromptKeywords(unittest.TestCase):
+    """v3.iter2 SYSTEM_PROMPT_V2 必含 v3 路线 + 12 屏型 + SCOTT_OVERRIDE + 准则 10/11 关键词."""
+
+    def test_includes_premium_minimalist_v32(self):
+        """v3.2: SYSTEM_PROMPT 应含'premium minimalist' (大疆风高级灰路线核心关键词)."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        self.assertIn("premium minimalist", SYSTEM_PROMPT_V2)
+
+    def test_includes_grayscale_palette_v32(self):
+        """v3.2: SYSTEM_PROMPT 应含 grayscale (副关键词) 和具体灰色 hex code."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        self.assertIn("grayscale", SYSTEM_PROMPT_V2)
+        self.assertIn("#F5F5F7", SYSTEM_PROMPT_V2)  # 浅灰
+        self.assertIn("#2C2C2E", SYSTEM_PROMPT_V2)  # 深灰
+
+    def test_includes_4_new_screen_types(self):
+        """v3.iter2: 4 个新屏型扩展 (3 个 v3 + 1 个 v3.iter2) 应在 prompt 中明示."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        for new_role in (
+            "scenario_grid_2x3", "icon_grid_radial", "FAQ", "lifestyle_demo",
+        ):
+            with self.subTest(role=new_role):
+                self.assertIn(new_role, SYSTEM_PROMPT_V2)
+
+    def test_includes_legal_compliance_constraint(self):
+        """准则 8 法律合规约束必须在 (v3.2 精修扩展为 GLOBAL 商业承诺约束)."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        self.assertIn("LEGAL COMPLIANCE", SYSTEM_PROMPT_V2)
+        # v3.2 改用中文表述: 保修期 / 认证 / 时间承诺 / 数量承诺
+        self.assertIn("保修期", SYSTEM_PROMPT_V2)
+        self.assertIn("认证", SYSTEM_PROMPT_V2)
+
+    def test_includes_scott_override_section(self):
+        """准则 9 SCOTT_OVERRIDE 模式必须在."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        self.assertIn("SCOTT_OVERRIDE", SYSTEM_PROMPT_V2)
+        self.assertIn("deliberate_dna_divergence", SYSTEM_PROMPT_V2)
+
+    def test_screen_count_range_8_to_15(self):
+        """SYSTEM_PROMPT_V2 应明确 8-15 屏 (v2 已废弃 6-10)."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        self.assertIn("8-15", SYSTEM_PROMPT_V2)
+        # 已废弃的"6-10 屏" 不应作为有效数字范围出现
+        # (但允许在 v2 历史注释里, 不在 v3 主文中)
+
+    def test_v1_system_prompt_unchanged(self):
+        """v3 改 v2 不能影响 v1 SYSTEM_PROMPT (回归保护)."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT
+        self.assertIn("视觉策划总监", SYSTEM_PROMPT)
+        self.assertIn("visual_type", SYSTEM_PROMPT)
+
+
+# ──────────────────────────────────────────────────────────────────
+# E: v3.iter2 (Scott 4/9 反馈) — 准则 10/11 + 12 屏型 + lifestyle_demo
+# ──────────────────────────────────────────────────────────────────
+class TestV3iter2RoleUniqueness(unittest.TestCase):
+    """v3.iter2 准则 11: 屏型唯一性硬约束 (Scott 改动 5)."""
+
+    def test_duplicate_role_triggers_warning(self):
+        """同一 role 出现 2 次必触发 schema 警告."""
+        d = _v2_sample()
+        # idx=5 (索引 4) 改 detail_zoom → 撞 idx=5 仍是 detail_zoom (无变化)
+        # 改 idx=2 (索引 1) feature_wall → detail_zoom, 让 detail_zoom 出现 2 次
+        d["screens"][1]["role"] = "detail_zoom"
+        w = _validate_schema_v2(d)
+        self.assertTrue(
+            any("屏型重复" in x and "detail_zoom" in x for x in w),
+            f"detail_zoom × 2 应触发屏型重复警告. warnings={w}",
+        )
+
+    def test_13_screens_inherits_dup_warning(self):
+        """13 屏 fixture 走 _V3_REPEAT_POOL → 必触发屏型重复警告."""
+        d = _v2_sample(screen_count=13)
+        w = _validate_schema_v2(d)
+        self.assertTrue(
+            any("屏型重复" in x for x in w),
+            f"13 屏 fixture 含重复 role, 必触发警告. warnings={w}",
+        )
+
+    def test_unique_8_screens_no_dup_warning(self):
+        """合规 8 屏 fixture 全唯一, 不触发屏型重复警告."""
+        d = _v2_sample()
+        w = _validate_schema_v2(d)
+        self.assertFalse(
+            any("屏型重复" in x for x in w),
+            f"8 屏 fixture 全唯一, 不应触发重复警告. warnings={w}",
+        )
+
+    def test_unique_12_screens_no_dup_warning(self):
+        """合规 12 屏 fixture (12 屏型一一对应) 不触发屏型重复警告."""
+        d = _v2_sample(screen_count=12)
+        w = _validate_schema_v2(d)
+        self.assertFalse(
+            any("屏型重复" in x for x in w),
+            f"12 屏 fixture 全唯一, 不应触发重复警告. warnings={w}",
+        )
+
+
+class TestV3iter2NewKeywords(unittest.TestCase):
+    """v3.iter2 SYSTEM_PROMPT_V2 必含准则 10/11 + 中文易错词 + lifestyle_demo 关键词."""
+
+    def test_includes_lifestyle_demo_screen_type(self):
+        """v3.iter2 加 lifestyle_demo 屏型在 prompt 中."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        self.assertIn("lifestyle_demo", SYSTEM_PROMPT_V2)
+
+    def test_includes_rule_10_product_image_frequency(self):
+        """v3.iter2 准则 10: 产品图露出频率限制关键词."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        # 准则 10 标题
+        self.assertIn("准则 10", SYSTEM_PROMPT_V2)
+        # 关键约束: feature_wall 0 次 + scenario_grid_2x3 ≤ 2 格 + 总数 ≤ 8
+        self.assertIn("产品图露出频率", SYSTEM_PROMPT_V2)
+        self.assertIn("≤ 8", SYSTEM_PROMPT_V2)
+
+    def test_includes_rule_11_role_uniqueness(self):
+        """v3.iter2 准则 11: 屏型唯一性硬约束关键词."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        self.assertIn("准则 11", SYSTEM_PROMPT_V2)
+        self.assertIn("屏型唯一性", SYSTEM_PROMPT_V2)
+
+    def test_includes_chinese_typo_guard(self):
+        """v3.iter2 准则 4 中文易错词显式书写规则 ('5G/LTE 移动物联网')."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        self.assertIn("移动物联网", SYSTEM_PROMPT_V2)
+        self.assertIn("中文易错词", SYSTEM_PROMPT_V2)
+
+    def test_eleven_rules_section_header(self):
+        """SYSTEM_PROMPT_V2 标题应是 '十一个核心准则' (v3 9 个 → v3.iter2 11 个)."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        self.assertIn("十一个核心准则", SYSTEM_PROMPT_V2)
+
+
+# ──────────────────────────────────────────────────────────────────
+# F: v3.2 精修 (Scott v3.2 PASS 后 2 个精修)
+# ──────────────────────────────────────────────────────────────────
+class TestV3_2LifestyleDemoRequired(unittest.TestCase):
+    """v3.2 精修反馈 1: lifestyle_demo 加进必出屏 (Scott 强需产品使用效果展示)."""
+
+    def test_lifestyle_demo_in_required_roles(self):
+        from ai_refine_v2.refine_planner import _REQUIRED_ROLES_V2
+        self.assertIn("lifestyle_demo", _REQUIRED_ROLES_V2)
+
+    def test_required_roles_count_4(self):
+        """必出屏从 v3 的 3 个 (hero/brand_quality/spec_table) → 4 个 (+lifestyle_demo)."""
+        from ai_refine_v2.refine_planner import _REQUIRED_ROLES_V2
+        self.assertEqual(len(_REQUIRED_ROLES_V2), 4)
+
+    def test_system_prompt_marks_lifestyle_demo_required(self):
+        """SYSTEM_PROMPT_V2 准则 3 必出屏列表应含 lifestyle_demo."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        # 准则 3 段必出屏列表包含 lifestyle_demo
+        idx_required = SYSTEM_PROMPT_V2.find("必出屏 (任何产品都生成")
+        self.assertGreater(idx_required, 0, "准则 3 必出屏段应存在")
+        idx_high = SYSTEM_PROMPT_V2.find("高优先级屏", idx_required)
+        required_section = SYSTEM_PROMPT_V2[idx_required:idx_high]
+        self.assertIn("lifestyle_demo", required_section,
+                      "lifestyle_demo 必须在准则 3 必出屏列表里")
+
+
+class TestV3_2GlobalCommitmentExtraction(unittest.TestCase):
+    """v3.2 精修反馈 2: 商业承诺真实性约束扩展为 GLOBAL (法律合规, 适用所有屏型).
+
+    旧 v3.iter2 仅 FAQ 屏适用, 实测 DZ70X brand_quality 屏出现"41 年品牌保证"
+    "全国 200+ 售后网点" 虚假宣传 → 法律风险. v3.2 扩展到所有屏型.
+    """
+
+    def test_system_prompt_includes_global_commitment_rule(self):
+        """准则 8 标题应说"GLOBAL 法律合规, 适用所有屏型"."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        # 准则 8 标题
+        self.assertIn("商业承诺真实性硬约束", SYSTEM_PROMPT_V2)
+        self.assertIn("GLOBAL", SYSTEM_PROMPT_V2)
+        # 旧 v3 LEGAL COMPLIANCE 关键词保留
+        self.assertIn("LEGAL COMPLIANCE", SYSTEM_PROMPT_V2)
+
+    def test_system_prompt_lists_5_commitment_categories(self):
+        """5 类商业承诺都在 prompt 中."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        for category in (
+            "时间承诺",      # 类别 1
+            "数量承诺",      # 类别 2
+            "资质认证",      # 类别 3
+            "退换政策",      # 类别 4
+            "具体数字承诺",  # 类别 5
+        ):
+            with self.subTest(category=category):
+                self.assertIn(category, SYSTEM_PROMPT_V2)
+
+    def test_system_prompt_includes_dz70x_real_examples(self):
+        """SYSTEM_PROMPT 含 DZ70X iter1 实测的虚假宣传反例 (41 年 / 200+) 作为约束依据."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        # 反例 1: 41 年品牌 (文案没写, DeepSeek 编造)
+        self.assertIn("41 年", SYSTEM_PROMPT_V2)
+        # 反例 2: 全国 200+ 售后网点
+        self.assertIn("200+", SYSTEM_PROMPT_V2)
+
+    def test_system_prompt_provides_safe_fallback_phrases(self):
+        """prompt 应提供"无具体数字"的 fallback 通用文案选项."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        # fallback: 通用品牌话术 (不含具体数字)
+        self.assertIn("专业品质", SYSTEM_PROMPT_V2)
+        self.assertIn("品质保障", SYSTEM_PROMPT_V2)
+
+    def test_system_prompt_explicit_brand_quality_caveat(self):
+        """明确指出 brand_quality 屏不能自动加品牌承诺类话术."""
+        from ai_refine_v2.prompts.planner import SYSTEM_PROMPT_V2
+        # brand_quality 屏不能加 "品牌保证" / "全国售后" 类话术
+        self.assertIn("brand_quality", SYSTEM_PROMPT_V2)
+        # 显式禁止 "12315 投诉" 法律风险
+        self.assertIn("12315", SYSTEM_PROMPT_V2)
 
 
 if __name__ == "__main__":

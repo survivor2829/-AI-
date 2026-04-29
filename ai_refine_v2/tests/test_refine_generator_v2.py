@@ -406,5 +406,242 @@ class TestV1V2SchemaIsolation(unittest.TestCase):
         self.assertTrue("selling_points" in msg or "planning" in msg)
 
 
+# ──────────────────────────────────────────────────────────────────
+# G: v3 (PRD AI_refine_v3.1) cutout_whitelist 参数 — per-screen 喂图控制
+# ──────────────────────────────────────────────────────────────────
+def _v3_planning_with_real_roles() -> dict:
+    """构造 8 屏 planning, role 是 v3.iter2 12 屏型成员 (whitelist 行为测试用).
+
+    v3.iter2 (Scott 改动 1+4): 默认白名单加了 spec_table 和 lifestyle_demo,
+    现在唯一真正不喂图的屏型是 FAQ. 故 fixture idx 8 = FAQ.
+    """
+    roles = ["hero", "feature_wall", "scenario", "vs_compare",
+             "detail_zoom", "value_story", "brand_quality", "FAQ"]
+    screens = []
+    for i, role in enumerate(roles, start=1):
+        screens.append({
+            "idx": i,
+            "role": role,
+            "title": f"屏 {i}",
+            "prompt": (
+                f"Screen {i} cinematic prompt with industrial yellow body "
+                f"and bold display headline. " * 5
+            ),
+        })
+    return {
+        "product_meta": {
+            "name": "X", "category": "设备类",
+            "primary_color": "yellow", "key_visual_parts": ["a", "b"],
+        },
+        "style_dna": {
+            "color_palette": "test palette tone tone tone tone tone tone",
+            "lighting": "test lighting upper-left cool fill warm rim",
+            "composition_style": "test asymmetric editorial layout space",
+            "mood": "test confident B2B premium",
+            "typography_hint": "test sans-serif",
+        },
+        "screen_count": 8,
+        "screens": screens,
+    }
+
+
+class TestCutoutWhitelistV3(unittest.TestCase):
+    """v3 generate_v2 cutout_whitelist 参数 — per-screen 喂图控制 (PRD §5.1, §9.3)."""
+
+    def _capture(self, planning, cutout="data:image/png;base64,iVBORw0KGgo=",
+                 **kwargs):
+        """跑 generate_v2, 抓每屏 image_data_url 是否非空."""
+        seen: dict[int, bool] = {}
+
+        def _fn(prompt, image_data_url, key, thinking, size):
+            import re
+            m = re.search(r"Screen (\d+) ", prompt)
+            idx = int(m.group(1)) if m else 99
+            seen[idx] = bool(image_data_url)
+            return f"https://fake/{idx}.png"
+
+        generate_v2(
+            planning, product_cutout_url=cutout, api_key="dummy",
+            api_call_fn=_fn, concurrency=4,
+            max_retries_hero=0, max_retries_sp=0,
+            **kwargs,
+        )
+        return seen
+
+    def test_default_whitelist_excludes_FAQ(self):
+        """cutout_whitelist=None → v3.iter2 默认 (FAQ 唯一不喂; spec_table 改回喂图)."""
+        seen = self._capture(_v3_planning_with_real_roles())
+        # idx 1-7: hero/feature_wall/scenario/vs_compare/detail_zoom/value_story/brand_quality
+        for idx in range(1, 8):
+            with self.subTest(idx=idx):
+                self.assertTrue(seen[idx], f"idx {idx} 应在默认白名单内, 应喂图")
+        # idx 8 (FAQ) 不应喂 — v3.iter2 准则 10 硬约束: FAQ 0 次产品图
+        self.assertFalse(seen[8], "idx 8 FAQ 不在默认白名单, 不应喂图")
+
+    def test_default_whitelist_includes_spec_table_iter2(self):
+        """v3.iter2 (Scott 改动 4): spec_table 改回默认白名单 (上半部产品图 + 下方参数)."""
+        from ai_refine_v2.refine_generator import generate_v2
+        # 单独构造 9 屏 fixture, 第 9 屏=spec_table
+        planning = _v3_planning_with_real_roles()
+        planning["screens"].append({
+            "idx": 9,
+            "role": "spec_table",
+            "title": "屏 9",
+            "prompt": "Screen 9 industrial spec sheet with product hero shot top half. " * 4,
+        })
+        planning["screen_count"] = 9
+        seen: dict[int, bool] = {}
+
+        def _fn(prompt, image_data_url, key, thinking, size):
+            import re
+            m = re.search(r"Screen (\d+) ", prompt)
+            idx = int(m.group(1)) if m else 99
+            seen[idx] = bool(image_data_url)
+            return f"https://fake/{idx}.png"
+
+        generate_v2(
+            planning, product_cutout_url="data:image/png;base64,iVBORw0KGgo=",
+            api_key="dummy", api_call_fn=_fn, concurrency=4,
+            max_retries_hero=0, max_retries_sp=0,
+        )
+        self.assertTrue(seen[9], "v3.iter2: spec_table 改回默认白名单, idx 9 应喂图")
+
+    def test_default_whitelist_includes_lifestyle_demo_iter2(self):
+        """v3.iter2 (Scott 改动 3): lifestyle_demo 在默认白名单 (真人 + 产品)."""
+        from ai_refine_v2.refine_generator import generate_v2
+        planning = _v3_planning_with_real_roles()
+        planning["screens"].append({
+            "idx": 9,
+            "role": "lifestyle_demo",
+            "title": "屏 9",
+            "prompt": "Screen 9 engineer using product in scene with warm natural light. " * 4,
+        })
+        planning["screen_count"] = 9
+        seen: dict[int, bool] = {}
+
+        def _fn(prompt, image_data_url, key, thinking, size):
+            import re
+            m = re.search(r"Screen (\d+) ", prompt)
+            idx = int(m.group(1)) if m else 99
+            seen[idx] = bool(image_data_url)
+            return f"https://fake/{idx}.png"
+
+        generate_v2(
+            planning, product_cutout_url="data:image/png;base64,iVBORw0KGgo=",
+            api_key="dummy", api_call_fn=_fn, concurrency=4,
+            max_retries_hero=0, max_retries_sp=0,
+        )
+        self.assertTrue(seen[9], "v3.iter2: lifestyle_demo 在默认白名单, idx 9 应喂图")
+
+    def test_whitelist_only_hero(self):
+        """cutout_whitelist={'hero'} → 只 hero 喂."""
+        seen = self._capture(
+            _v3_planning_with_real_roles(),
+            cutout_whitelist={"hero"},
+        )
+        self.assertTrue(seen[1], "hero 应喂图")
+        for idx in range(2, 9):
+            with self.subTest(idx=idx):
+                self.assertFalse(seen[idx], f"idx {idx} 不在 whitelist, 不应喂图")
+
+    def test_whitelist_empty_set_no_screen_fed(self):
+        """cutout_whitelist=set() → 全不喂."""
+        seen = self._capture(
+            _v3_planning_with_real_roles(),
+            cutout_whitelist=set(),
+        )
+        for idx in range(1, 9):
+            with self.subTest(idx=idx):
+                self.assertFalse(seen[idx], f"empty whitelist idx {idx} 不应喂图")
+
+    def test_whitelist_custom_set(self):
+        """cutout_whitelist={'hero','FAQ'} → 这 2 屏喂 (自定义白名单优先于默认)."""
+        seen = self._capture(
+            _v3_planning_with_real_roles(),
+            cutout_whitelist={"hero", "FAQ"},
+        )
+        self.assertTrue(seen[1], "hero 在 whitelist 应喂图")
+        self.assertTrue(seen[8], "FAQ 在 whitelist (即使它通常不喂) 应喂图 — 自定义优先")
+        for idx in range(2, 8):
+            with self.subTest(idx=idx):
+                self.assertFalse(seen[idx], f"idx {idx} 不在 whitelist, 不应喂图")
+
+    def test_no_cutout_url_no_screen_fed_even_with_whitelist(self):
+        """product_cutout_url=None → 即使 whitelist 包含也不喂."""
+        seen = self._capture(
+            _v3_planning_with_real_roles(),
+            cutout=None,
+            cutout_whitelist={"hero", "feature_wall"},
+        )
+        for idx in range(1, 9):
+            with self.subTest(idx=idx):
+                self.assertFalse(seen[idx], f"cutout=None 下 idx {idx} 不应喂图")
+
+
+# ──────────────────────────────────────────────────────────────────
+# H: v3 (PRD AI_refine_v3.1 §5.2) INJECTION_PREFIX 注入逻辑
+# ──────────────────────────────────────────────────────────────────
+class TestInjectionPrefixV3(unittest.TestCase):
+    """v3 喂图屏 prompt 开头自动 prepend "Image 1 is the reference product cutout..." (PRD §5.2)."""
+
+    def _capture_prompts(self, planning, cutout="data:image/png;base64,iVBORw0KGgo=",
+                          **kwargs) -> dict[int, tuple[str, bool]]:
+        """跑 generate_v2, 抓每屏的 (prompt, has_image_data_url)."""
+        captured: dict[int, tuple[str, bool]] = {}
+
+        def _fn(prompt, image_data_url, key, thinking, size):
+            import re
+            m = re.search(r"Screen (\d+) ", prompt)
+            idx = int(m.group(1)) if m else 99
+            captured[idx] = (prompt, bool(image_data_url))
+            return f"https://fake/{idx}.png"
+
+        generate_v2(
+            planning, product_cutout_url=cutout, api_key="dummy",
+            api_call_fn=_fn, concurrency=4,
+            max_retries_hero=0, max_retries_sp=0,
+            **kwargs,
+        )
+        return captured
+
+    def test_fed_screens_have_injection_prefix(self):
+        """喂图屏 prompt 开头必须含 'Image 1 is the reference product cutout'."""
+        captured = self._capture_prompts(_v3_planning_with_real_roles())
+        # idx 1-7 在默认 whitelist (hero/feature_wall/scenario/vs_compare/detail_zoom/value_story/brand_quality)
+        for idx in range(1, 8):
+            with self.subTest(idx=idx):
+                prompt, fed = captured[idx]
+                self.assertTrue(fed, f"idx {idx} 应喂图")
+                self.assertTrue(
+                    prompt.startswith("Image 1 is the reference product cutout"),
+                    f"idx {idx} 喂图屏 prompt 必须以注入语开头, 实际开头 100 字符: {prompt[:100]!r}",
+                )
+
+    def test_unfed_screens_do_not_have_injection_prefix(self):
+        """不喂图屏 (v3.iter2: FAQ) prompt 不能带注入语 (image_urls 不存在, 注入会误导模型)."""
+        captured = self._capture_prompts(_v3_planning_with_real_roles())
+        # idx 8 FAQ 不在 v3.iter2 默认 whitelist (准则 10: FAQ 0 次产品图)
+        prompt, fed = captured[8]
+        self.assertFalse(fed, "FAQ 不应喂图")
+        self.assertNotIn(
+            "Image 1 is the reference product cutout", prompt,
+            "FAQ 不喂图屏不应有注入语 prefix",
+        )
+
+    def test_no_cutout_no_injection_anywhere(self):
+        """product_cutout_url=None → 全屏都不喂图, 全屏都没注入语."""
+        captured = self._capture_prompts(
+            _v3_planning_with_real_roles(), cutout=None,
+        )
+        for idx in range(1, 9):
+            with self.subTest(idx=idx):
+                prompt, fed = captured[idx]
+                self.assertFalse(fed, f"cutout=None 下 idx {idx} 不应喂图")
+                self.assertNotIn(
+                    "Image 1 is the reference product cutout", prompt,
+                    f"idx {idx} 无 cutout 时不应有注入语",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

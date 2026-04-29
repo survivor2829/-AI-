@@ -561,6 +561,22 @@ def generate(
 
 _V2_SIZE_DEFAULT = "3:4"  # PRD §阶段二: 1536×2048 锁定
 
+# v3 (PRD AI_refine_v3.1 §5.2): 喂 cutout 屏的 prompt 开头注入此句, 让 gpt-image-2
+# 知道 image_urls[0] 是产品参考图, 必须保留产品 silhouette / 主色 / 关键部件.
+# 不喂图屏不注入 (没 image_urls, 注入这句反而误导模型). 跟 cutout_whitelist 联动.
+#
+# v3.2 (2026-04-29 deliberate_iron_rule_5_break_2nd): 强化版,
+# 加 "EXACT original color WITHOUT ambient color shifting", 因为
+# DZ70X (黑色产品) 用 v3.iter2 INJECTION_PREFIX 仍被暖色阳光环境染金色 —
+# 必须显式禁掉 ambient color shifting 才能保黑色产品的颜色.
+_INJECTION_PREFIX_V3 = (
+    "Image 1 is the reference product cutout. Preserve the product's "
+    "EXACT original color WITHOUT ambient color shifting. The product's "
+    "primary color must remain unchanged regardless of lighting or "
+    "background. Preserve silhouette, key visual parts, and original "
+    "hue exactly. "
+)
+
 
 def _build_blocks_v2(planning_v2: dict) -> list[dict]:
     """v2 schema 的 screens[] → 内部 block dict 列表.
@@ -630,11 +646,18 @@ def _generate_one_block_v2(
         except Exception as e:
             print(f"[gen_v2][{bid}] 参考图转 data URL 失败, 降级纯文生: {e}")
 
+    # v3 (PRD AI_refine_v3.1 §5.2): 喂图屏 prompt 开头注入 INJECTION_PREFIX,
+    # 让 gpt-image-2 把 image_urls[0] 当形态锚点而非装饰品.
+    # 不喂图屏 (image_data_url is None) 不注入, 否则误导模型脑补不存在的 Image 1.
+    effective_prompt = prompt
+    if image_data_url:
+        effective_prompt = _INJECTION_PREFIX_V3 + prompt
+
     last_err = None
     attempts = 0
     while attempts <= max_retries:
         try:
-            url = api_call_fn(prompt, image_data_url, api_key, thinking, size)
+            url = api_call_fn(effective_prompt, image_data_url, api_key, thinking, size)
             return (
                 BlockResult(
                     block_id=bid, visual_type=vt,
@@ -674,6 +697,7 @@ def generate_v2(
     max_retries_sp: int = 1,
     api_call_fn: Optional[ApiCallFn] = None,
     cost_per_call_rmb: float = _COST_PER_CALL_RMB,
+    cutout_whitelist: Optional[set[str]] = None,  # v3 (PRD AI_refine_v3.1)
 ) -> GenerationResult:
     """v2 schema (plan_v2 输出) → 一组 1536×2048 gpt-image-2 PNG.
 
@@ -693,6 +717,10 @@ def generate_v2(
         product_cutout_url: 产品参考图 URL/path (可选, 给了就喂 image_urls hint)
         api_key: APIMart key, None 从 env GPT_IMAGE_API_KEY 读
         api_call_fn: 单测注入点, 生产用 _default_api_call (submit + poll)
+        cutout_whitelist: v3 (PRD AI_refine_v3.1) per-screen 喂图控制.
+            屏型 role 集合, 仅这些 role 喂参考图.
+            None (默认) = PRD v3 默认 (除 spec_table / FAQ 外全喂).
+            空 set() = 全不喂. 自定义 set = 仅指定 role 喂.
         其他参数: 同 v1 generate()
 
     Returns:
@@ -715,6 +743,30 @@ def generate_v2(
 
     call_fn: ApiCallFn = api_call_fn or _default_api_call
 
+    # v3 (PRD AI_refine_v3.1): 计算 effective cutout whitelist
+    # 默认行为 (cutout_whitelist=None): 除 spec_table / FAQ 外全喂图
+    # PRD 5.1 默认白名单: hero, feature_wall, scenario, scenario_grid_2x3,
+    #                    vs_compare, detail_zoom, icon_grid_radial, value_story,
+    #                    brand_quality, lifestyle_demo (v3.iter2 新增)
+    # v3.iter2 (Scott 改动 1): feature_wall 仍喂图但 prompt 准则 10 限制 icon 卡下面不能再放产品图;
+    #                          spec_table 改回喂图 (Scott 改动 4 修正: 上半部 1 张产品图 + 下方参数)
+    if cutout_whitelist is None:
+        effective_whitelist: frozenset[str] = frozenset({
+            "hero", "feature_wall", "scenario", "scenario_grid_2x3",
+            "vs_compare", "detail_zoom", "icon_grid_radial",
+            "value_story", "brand_quality", "lifestyle_demo",
+            "spec_table",  # v3.iter2: 改回喂图 (Scott 修正: 上半部产品图)
+        })
+    else:
+        effective_whitelist = frozenset(cutout_whitelist)
+
+    def _cutout_for(block: dict) -> Optional[str]:
+        """v3: 根据 block role 决定该屏是否喂 product_cutout_url."""
+        if not product_cutout_url:
+            return None
+        role = block.get("visual_type", "")
+        return product_cutout_url if role in effective_whitelist else None
+
     result = GenerationResult()
     t_start = time.time()
 
@@ -730,7 +782,7 @@ def generate_v2(
     hero_block = blocks[0]
     print(f"[gen_v2] Hero ({hero_block['block_id']}) 开始, 重试上限 {max_retries_hero}...")
     hero_res, hero_cost = _generate_one_block_v2(
-        hero_block, product_cutout_url, use_key, call_fn,
+        hero_block, _cutout_for(hero_block), use_key, call_fn,
         max_retries_hero, thinking, size,
     )
     result.blocks.append(hero_res)
@@ -759,7 +811,7 @@ def generate_v2(
         futures = {
             pool.submit(
                 _generate_one_block_v2,
-                b, product_cutout_url, use_key, call_fn,
+                b, _cutout_for(b), use_key, call_fn,
                 max_retries_sp, thinking, size,
             ): b
             for b in sp_blocks

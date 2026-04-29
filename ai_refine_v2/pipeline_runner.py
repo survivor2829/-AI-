@@ -200,7 +200,11 @@ def _copy_mock_images(task_dir: Path) -> list[dict]:
 # v2 mock helpers (PRD §阶段二·任务 2.2): 缺 key 时走 v2 mock 路径
 # ─────────────────────────────────────────────────────────────
 def _load_mock_planning_v2(product_text: str, product_title: str) -> dict:
-    """v2 schema mock planning. 6 屏最小合规 dict (满足 _validate_schema_v2).
+    """v3 schema mock planning (PRD AI_refine_v3.1). 8 屏最小合规 dict.
+
+    v3: 6 → 8 屏, 含必出 3 屏 (hero/brand_quality/spec_table),
+    spec_table 屏走 SCOTT_OVERRIDE 模式 (deliberate_dna_divergence=True).
+    unified_visual_treatment 含 v3 关键词 (warm golden-hour + industrial cool tones).
 
     每屏 prompt ≥200 字符, 让 generate_v2 不会因空 prompt 跳过.
     第一版用硬编码 fallback; 未来可选从 stage1_eval_output/ 加载真样本.
@@ -213,16 +217,21 @@ def _load_mock_planning_v2(product_text: str, product_title: str) -> dict:
         "space, cool steel-blue rim light, magazine-cover composition. "
         "All Chinese characters render sharp, accurate, no typos."
     )
+    # v3.2 精修: 8 屏 (必出 4 屏 hero/brand_quality/spec_table/lifestyle_demo + 4 高优)
     roles = ["hero", "feature_wall", "scenario", "vs_compare",
-             "spec_table", "brand_quality"]
+             "detail_zoom", "lifestyle_demo", "brand_quality", "spec_table"]
     screens = []
     for i, role in enumerate(roles, start=1):
-        screens.append({
+        screen = {
             "idx": i,
             "role": role,
             "title": f"屏 {i} · {role}",
             "prompt": f"Screen {i} ({role}): {base_prompt}",
-        })
+        }
+        # v3: SCOTT_OVERRIDE 屏 (spec_table / FAQ) 必须设 deliberate_dna_divergence=True
+        if role in ("spec_table", "FAQ"):
+            screen["deliberate_dna_divergence"] = True
+        screens.append(screen)
     return {
         "product_meta": {
             "name": name,
@@ -231,14 +240,18 @@ def _load_mock_planning_v2(product_text: str, product_title: str) -> dict:
             "key_visual_parts": ["body", "wheels", "sensor"],
         },
         "style_dna": {
-            "color_palette": "mock palette with multiple tones for dev",
+            "color_palette": "mock palette with multiple tones for dev testing",
             "lighting": "mock lighting from upper-left with cool fill",
             "composition_style": "mock asymmetric editorial layout dev",
             "mood": "mock dev confident",
             "typography_hint": "mock sans-serif",
-            "unified_visual_treatment": "mock documentary photo-realism dominant base for dev testing",
+            # v3: unified_visual_treatment 改用 v3 关键词 (warm golden-hour + industrial cool tones)
+            "unified_visual_treatment": (
+                "mock cinematic photography with warm golden-hour atmosphere "
+                "and industrial cool tones for technical screens, dev testing"
+            ),
         },
-        "screen_count": 6,
+        "screen_count": 8,
         "screens": screens,
     }
 
