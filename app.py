@@ -1614,10 +1614,14 @@ def _refine_db_sync_callback(batch_id, name, status, result, error):
 @app.route("/api/batch/<batch_id>/ai-refine-start", methods=["POST"])
 @login_required
 def batch_ai_refine_start(batch_id):
-    """任务11 (PRD F6): 把勾选的产品扔进精修池, 真调豆包 Seedream。
+    """任务11 (PRD F6 → v3.2): 把勾选的产品扔进精修池.
 
-    请求体 JSON:
-        { "ark_api_key": "sk-xxxxx" }   # 前端从 localStorage['ark_api_key'] 读
+    v3.2 (2026-04-29): 切换到 v2 path (DeepSeek + APIMart gpt-image-2),
+    不再依赖用户提供 ark_api_key. 服务端 .env 已配 DEEPSEEK_API_KEY +
+    GPT_IMAGE_API_KEY, 用户在批量 UI 直接点启动即可.
+
+    请求体 JSON (兼容历史调用方):
+        { "ark_api_key": "sk-xxxxx" }   # v3.2 已不使用, 字段保留为兼容
     """
     import refine_processor
 
@@ -1628,14 +1632,19 @@ def batch_ai_refine_start(batch_id):
         return jsonify({"error": "只有批次上传者可以启动精修"}), 403
 
     data = request.get_json(silent=True) or {}
+    # v3.2: ark_api_key 不再必填. 透传给 refine_processor 兼容签名 (内部忽略).
     ark_api_key = (data.get("ark_api_key") or "").strip()
-    if not ark_api_key:
+    # v3.2 改为校验服务端 env 是否配齐 v2 双 key
+    if not (os.environ.get("DEEPSEEK_API_KEY", "").strip()
+            and os.environ.get("GPT_IMAGE_API_KEY", "").strip()):
         return jsonify({
-            "error": "未检测到豆包 API Key。请先到 workspace 页"
-                     "(/#/ai-compose) 点「AI 精修(专业版)→ 设置」填入 sk-xxx",
-            "action": "configure_ark_key",
-            "redirect": "/#/ai-compose",
-        }), 400
+            "error": (
+                "服务端 v3.2 v2 path key 未配齐. 联系管理员在 .env 加 "
+                "DEEPSEEK_API_KEY + GPT_IMAGE_API_KEY 后 docker compose "
+                "up -d --force-recreate web."
+            ),
+            "action": "server_missing_v2_keys",
+        }), 503
 
     candidates, skipped, already_done = _select_refine_candidates(batch)
     if not candidates:
