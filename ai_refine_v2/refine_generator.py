@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from ai_refine_v2.color_extractor import ColorAnchor, extract_color_anchor  # v3.2.2
 from ai_refine_v2.prompts.generator import render
 from ai_refine_v2.refine_planner import _VALID_ROLES_V2
 
@@ -777,6 +778,23 @@ def generate_v2(
             base_image_data_url = _to_data_url(product_cutout_url)
         except Exception as e:
             print(f"[gen_v2] 参考图转 data URL 失败, 全部 block 降级纯文生: {e}")
+
+    # v3.2.2: PIL 抽 cutout 主色 → hex 锚 + 色卡 PNG bytes (12 屏共享一次)
+    # 失败返 None, 调用方走 v3.2.1 fallback (单图 + LEGACY prefix).
+    color_anchor: Optional[ColorAnchor] = None
+    if product_cutout_url:
+        try:
+            color_anchor = extract_color_anchor(product_cutout_url)
+            if color_anchor:
+                print(f"[gen_v2] color_anchor: primary={color_anchor.primary_hex}, "
+                      f"palette={color_anchor.palette_hex}, "
+                      f"confidence={color_anchor.confidence:.3f}")
+            else:
+                print(f"[gen_v2] color_anchor 提取失败 (产品多色无主导/纯白/损坏图), "
+                      f"走 v3.2.1 fallback")
+        except Exception as e:
+            print(f"[gen_v2] color_anchor 异常 (走 fallback): {e}")
+            color_anchor = None
 
     def _cutout_for(block: dict) -> Optional[str]:
         """v3: 根据 block role 决定该屏是否喂 cutout. 返回已转好的 data URL 或 None."""
