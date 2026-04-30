@@ -109,5 +109,54 @@ class TestRegenerateScreenSuccess(unittest.TestCase):
             self.assertTrue(result.new_assembled_path.exists())
 
 
+class TestRegenerateScreenEdgeCases(unittest.TestCase):
+    def test_task_dir_not_exist(self):
+        with self.assertRaises(FileNotFoundError):
+            regenerate_screen(
+                task_dir=Path("/nonexistent/xxxx"),
+                block_index=0, cutout_path=None,
+                deepseek_key="x", gpt_image_key="x",
+            )
+
+    def test_planning_json_missing(self):
+        with TemporaryDirectory() as tmp:
+            task_dir = Path(tmp) / "v2_x"
+            task_dir.mkdir()
+            with self.assertRaises(FileNotFoundError):
+                regenerate_screen(task_dir, 0, None, "x", "x")
+
+    def test_block_index_out_of_range_negative(self):
+        with TemporaryDirectory() as tmp:
+            task_dir = _make_task_dir(Path(tmp), n_blocks=12)
+            with self.assertRaises(IndexError):
+                regenerate_screen(task_dir, -1, None, "x", "x")
+
+    def test_block_index_out_of_range_too_large(self):
+        with TemporaryDirectory() as tmp:
+            task_dir = _make_task_dir(Path(tmp), n_blocks=12)
+            with self.assertRaises(IndexError):
+                regenerate_screen(task_dir, 12, None, "x", "x")
+
+
+class TestAssembleLongImage(unittest.TestCase):
+    def test_assemble_no_blocks_raises(self):
+        from ai_refine_v2.regen_single import _assemble_long_image
+        with TemporaryDirectory() as tmp:
+            empty_dir = Path(tmp) / "empty"
+            empty_dir.mkdir()
+            with self.assertRaises(FileNotFoundError):
+                _assemble_long_image(empty_dir)
+
+    def test_assemble_12_blocks_height_sum(self):
+        from ai_refine_v2.regen_single import _assemble_long_image
+        with TemporaryDirectory() as tmp:
+            task_dir = _make_task_dir(Path(tmp), n_blocks=12)
+            out = _assemble_long_image(task_dir)
+            self.assertTrue(out.is_file())
+            with Image.open(out) as assembled:
+                h = assembled.height
+            self.assertEqual(h, 12 * 400)  # 12 屏 × 400 height
+
+
 if __name__ == "__main__":
     unittest.main()
