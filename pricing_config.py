@@ -18,6 +18,10 @@ import os
 # 豆包 Seedream 文生图当前单价 (元/次调用)。变价时只改这里。
 SEEDREAM_UNIT_PRICE_YUAN: float = 0.20
 
+# v3.3 单屏 reroll 单价 (gpt-image-2 一次调用约 ¥0.7, 与批次 v2 path 同级 model).
+# 改这个值的运维场景: APIMart 调价, 或换 model.
+REGEN_SCREEN_UNIT_PRICE_YUAN = 0.70
+
 # 物理余额保护上限 (元) — 单次 /ai-refine-start 请求预估超过此值直接 400 拦住。
 # 防止用户手滑勾选过多产品或前端 bug 导致一次烧光豆包额度。
 # 环境变量 MAX_REFINE_COST_PER_RUN 覆盖, 默认 ¥5 = 4 个产品 × 6 屏 × ¥0.20 还剩 ¥0.2 余量。
