@@ -456,6 +456,64 @@
 
   init();
 
+  // ── WS 监听 screen_regenerated (Task 9) ──────────────────────
+  (function initRegenWS() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${location.host}/ws/batch/${BATCH_ID}`;
+    let ws;
+    let retryDelay = 2000;
+    const MAX_DELAY = 30000;
+    let retryTimer = null;
+    let closedByUs = false;
+
+    function connect() {
+      ws = new WebSocket(url);
+      ws.onopen = () => { retryDelay = 2000; };
+      ws.onmessage = (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch (_) { return; }
+        if (msg.type === 'screen_regenerated') {
+          // 替换该屏 img
+          const card = document.querySelector(
+            `.hd-screen-card[data-index="${msg.block_index}"]`
+          );
+          if (card) {
+            const img = card.querySelector('.hd-screen-img');
+            if (img) img.src = msg.new_block_url; // 已带 ?v=ts
+          }
+          // 同时刷长图 (cache-bust)
+          document.querySelectorAll('.hd-ai-img').forEach(el => {
+            el.src = msg.new_assembled_url;
+          });
+          // toast (如果存在 _showToast helper)
+          if (window._showToast) {
+            window._showToast(`第 ${msg.block_index + 1} 屏已重生 (¥${msg.cost_rmb})`, 'success');
+          }
+        }
+      };
+      ws.onclose = () => {
+        if (closedByUs) return;
+        retryTimer = setTimeout(() => {
+          retryDelay = Math.min(retryDelay * 2, MAX_DELAY);
+          connect();
+        }, retryDelay);
+      };
+      ws.onerror = () => { /* onclose 会跟着触发, 由 onclose 处理重连 */ };
+    }
+
+    connect();
+
+    // tab 切回前台时如果 ws 已断, 立即重连
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+        retryDelay = 2000;
+        connect();
+      }
+    });
+  })();
+
   // ── reroll 确认 modal + fetch (Task 8) ───────────────────────
   let _pendingReroll = null;
 
