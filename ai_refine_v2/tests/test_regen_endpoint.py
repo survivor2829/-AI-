@@ -113,3 +113,99 @@ class TestRegenEndpoint4xx(unittest.TestCase):
             json={},
         )
         self.assertEqual(r.status_code, 400)
+
+
+class TestRegenEndpoint200(unittest.TestCase):
+    def setUp(self):
+        app.config["TESTING"] = True
+        app.config["WTF_CSRF_ENABLED"] = False
+
+    def test_success_calls_regenerate_screen_and_publishes_ws(self):
+        from pathlib import Path
+        username = _uid("ok_user")
+        batch_id = _uid("ok_b")
+        client, uid = _make_authed_client(username)
+        with app.app_context():
+            b = Batch(batch_id=batch_id, name="b", raw_name="b", user_id=uid,
+                      batch_dir="x")
+            db.session.add(b)
+            db.session.commit()
+            it = BatchItem(batch_pk=b.id, name="p", status="done",
+                           ai_refine_status="done",
+                           result=json.dumps({
+                               "task_id": "v2_test_xyz",
+                               "ai_refined_path": "/uploads/x/p/ai_refined.jpg",
+                           }))
+            db.session.add(it)
+            db.session.commit()
+            it_pk = it.id
+
+        from ai_refine_v2.regen_single import RegenResult
+        fake_result = RegenResult(
+            new_block_path=Path("/tmp/block_4.jpg"),
+            new_assembled_path=Path("/tmp/assembled.png"),
+            cost_rmb=0.7,
+        )
+        with mock.patch(
+            "ai_refine_v2.regen_single.regenerate_screen",
+            return_value=fake_result,
+        ) as mocked, mock.patch(
+            "batch_pubsub.publish",
+            return_value=1,
+        ) as ws_pub, mock.patch.dict(
+            "os.environ",
+            {"DEEPSEEK_API_KEY": "fake_ds_key", "GPT_IMAGE_API_KEY": "fake_gpt_key"},
+        ):
+            # also mock task_dir.is_dir() so 410 is bypassed
+            with mock.patch(
+                "pathlib.Path.is_dir",
+                return_value=True,
+            ):
+                r = client.post(
+                    f"/api/batch/{batch_id}/items/{it_pk}/regenerate-screen",
+                    json={"block_index": 4},
+                )
+        self.assertEqual(r.status_code, 200)
+        body = r.get_json()
+        self.assertEqual(body["block_index"], 4)
+        self.assertEqual(body["cost_rmb"], 0.7)
+        self.assertIn("new_assembled_url", body)
+        self.assertEqual(mocked.call_count, 1)
+        self.assertEqual(ws_pub.call_count, 1)
+        ev = ws_pub.call_args.args[1]
+        self.assertEqual(ev["type"], "screen_regenerated")
+        self.assertEqual(ev["block_index"], 4)
+
+
+class TestRegenEndpointLock(unittest.TestCase):
+    def setUp(self):
+        app.config["TESTING"] = True
+        app.config["WTF_CSRF_ENABLED"] = False
+
+    def test_locked_returns_423(self):
+        from app import _get_regen_lock
+        username = _uid("lock_user")
+        batch_id = _uid("l_b")
+        client, uid = _make_authed_client(username)
+        with app.app_context():
+            b = Batch(batch_id=batch_id, name="b", raw_name="b", user_id=uid,
+                      batch_dir="x")
+            db.session.add(b)
+            db.session.commit()
+            it = BatchItem(batch_pk=b.id, name="p", status="done",
+                           ai_refine_status="done",
+                           result=json.dumps({"task_id": "v2_t"}))
+            db.session.add(it)
+            db.session.commit()
+            it_pk = it.id
+
+        lk = _get_regen_lock(it_pk, 4)
+        self.assertTrue(lk.acquire(blocking=False))
+        try:
+            r = client.post(
+                f"/api/batch/{batch_id}/items/{it_pk}/regenerate-screen",
+                json={"block_index": 4},
+            )
+            self.assertEqual(r.status_code, 423)
+        finally:
+            lk.release()
