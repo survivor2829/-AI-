@@ -40,7 +40,9 @@ from ai_refine_v2.refine_planner import _VALID_ROLES_V2
 
 
 # ── 常量 ────────────────────────────────────────────────────────
-_APIMART_BASE = "https://api.apimart.ai/v1"
+# P3 砍刀流: 精修 API endpoint 走 REFINE_API_BASE_URL env, 反硬编码原则下不留 fallback URL.
+# 启动校验 (app.py:_REQUIRED_PLATFORM_KEYS) 已确保 env 非空, 此处直接读保证 fail-fast.
+_APIMART_BASE = os.environ["REFINE_API_BASE_URL"]
 _APIMART_MODEL = "gpt-image-2"
 _APIMART_SIZE_DEFAULT = "1:1"
 _POLL_INTERVAL_S = 3
