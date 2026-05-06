@@ -10,10 +10,24 @@ import functools
 import numpy as np
 
 # ── 字体 ──────────────────────────────────────────────────────────────
-FONT_DIR = "C:/Windows/Fonts"
-FONT_REGULAR = f"{FONT_DIR}/msyh.ttc"
-FONT_BOLD = f"{FONT_DIR}/msyhbd.ttc"
-FONT_EMOJI = f"{FONT_DIR}/seguiemj.ttf"  # Segoe UI Emoji (Windows 10+)
+# P4 §B.4 修复: 跨平台 emoji 字体候选, Windows / Linux / macOS 都能找到
+# (per audit stub B4 方案 B). 原 FONT_DIR/FONT_REGULAR/FONT_BOLD 是 dead code,
+# v2 管线已用 _resolve_font_path + _load_chinese_font 取代, 直接删除.
+_EMOJI_FONT_CANDIDATES = [
+    "C:/Windows/Fonts/seguiemj.ttf",                  # Windows 10+
+    "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",  # Debian/Ubuntu
+    "/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf",  # Fedora
+    "/usr/share/fonts/noto/NotoColorEmoji.ttf",       # Arch
+    "/System/Library/Fonts/Apple Color Emoji.ttc",    # macOS
+]
+
+
+def _resolve_emoji_font_path() -> str:
+    """First-existing emoji 字体路径; 无可用返回空串 (caller fallback 到普通字体)."""
+    for path in _EMOJI_FONT_CANDIDATES:
+        if Path(path).exists():
+            return path
+    return ""
 
 # ── 画布尺寸 ──────────────────────────────────────────────────────────
 W = 750
@@ -36,11 +50,14 @@ def _font(size, bold=False):
 
 
 def _emoji_font(size):
-    """Emoji字体（Segoe UI Emoji），fallback到雅黑"""
-    try:
-        return ImageFont.truetype(FONT_EMOJI, size)
-    except (IOError, OSError):
-        return _font(size)
+    """Emoji 字体, 跨平台候选解析; 全失败 fallback 到普通中文字体."""
+    emoji_path = _resolve_emoji_font_path()
+    if emoji_path:
+        try:
+            return ImageFont.truetype(emoji_path, size)
+        except (IOError, OSError):
+            pass
+    return _font(size)
 
 
 # ── 绘图工具 ──────────────────────────────────────────────────────────
