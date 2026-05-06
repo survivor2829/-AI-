@@ -58,6 +58,28 @@ static/
 5. 点"导出高清PNG"，Playwright 截图下载
 
 ## 启动
+
+### P3 砍刀流: 平台 API Key 要求
+
+app.py 启动时检查必填的 platform key（P3 砍刀流后用户不再自配）：
+- `DEEPSEEK_API_KEY` (文案 AI 解析)
+- `REFINE_API_KEY` (精修 API)
+- `REFINE_API_BASE_URL` (精修 endpoint)
+
+**开发环境选项：**
+1. **推荐**: 在 `.env` 里配置真实的 key（参考 `.env.example`）
+2. **备选**: 设置 `FLASK_ENV=development` 绕过校验（开发时使用 conftest.py fake key）
+3. **测试**: pytest 通过 `conftest.py` 自动注入 fake key
+
+```bash
+# 选项 2: 开发模式（跳过 key 校验）
+FLASK_ENV=development python app.py
+
+# 或直接导入（测试用）
+FLASK_ENV=development python -c "import app"
+```
+
+### 启动应用
 ```bash
 python app.py
 ```

@@ -32,9 +32,6 @@
           {% else %}
             <span class="badge badge-gray">免费</span>
           {% endif %}
-          {% if u.custom_api_key_enc %}
-            <span class="badge badge-blue">自有Key</span>
-          {% endif %}
         </td>
         <td>{{ u.created_at.strftime('%m-%d %H:%M') if u.created_at else '-' }}</td>
         <td>{{ u.last_active.strftime('%m-%d %H:%M') if u.last_active else '-' }}</td>

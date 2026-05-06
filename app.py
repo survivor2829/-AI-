@@ -26,6 +26,24 @@ import batch_pubsub as batch_pubsub_mod
 # 加载 .env 文件（本地开发用，生产环境靠系统环境变量）
 load_dotenv(Path(__file__).parent / ".env")
 
+# ── P3 砍刀流: 启动校验 platform key 完整性 (per master roadmap §8) ──
+# 用户登录后不再自配 API key, 所有调用走 env. 缺任一必填项立即 fail-fast,
+# 避免运行时才发现 key 缺失导致用户看到 5xx.
+# Note: 测试时由 conftest.py 注入 fake key; 生产环境必须在 .env 或系统环境变量中配齐.
+_REQUIRED_PLATFORM_KEYS = [
+    "DEEPSEEK_API_KEY",       # 文案 AI 解析
+    "REFINE_API_KEY",         # gpt-image-2 精修
+    "REFINE_API_BASE_URL",    # 精修 API endpoint (反硬编码: 不留 fallback default)
+]
+_in_test_or_dev_mode = "pytest" in sys.modules or os.environ.get("FLASK_ENV") == "development"
+_missing_platform_keys = [k for k in _REQUIRED_PLATFORM_KEYS if not os.environ.get(k, "").strip()]
+if _missing_platform_keys and not _in_test_or_dev_mode:
+    raise RuntimeError(
+        f"\n[启动校验] 缺以下 platform key: {_missing_platform_keys}\n"
+        f"  请在 .env 配齐后重启 (参考 .env.example).\n"
+        f"  P3 砍刀流后用户不再自配 key, 必须 platform 全配."
+    )
+
 import threading
 from flask import Flask, request, jsonify, send_file, send_from_directory, render_template, redirect, url_for, abort, flash
 from flask_login import login_required, current_user
@@ -1057,39 +1075,22 @@ def build_redirect(product_type):
     return render_template("workspace.html", initial_product_type=product_type)
 
 
-# ── 用户设置页 ──
-@app.route("/settings", methods=["GET", "POST"])
+# ── 用户设置页 (P3 砍刀流后仅展示账号信息, 不再有 API Key 配置) ──
+@app.route("/settings", methods=["GET"])
 @login_required
 def user_settings():
-    from crypto_utils import encrypt_api_key
-    has_custom_key = bool(current_user.custom_api_key_enc)
-
-    if request.method == "POST":
-        new_key = request.form.get("custom_api_key", "").strip()
-        if new_key:
-            current_user.custom_api_key_enc = encrypt_api_key(new_key)
-            db.session.commit()
-            flash("API Key 已保存", "success")
-        elif not new_key and has_custom_key:
-            pass  # 空提交不清除已有 Key
-        return redirect(url_for("user_settings"))
-
-    return render_template("auth/settings.html", has_custom_key=has_custom_key)
+    return render_template("auth/settings.html")
 
 
 def _get_user_api_key():
-    """获取当前用户应使用的 API Key，返回 (key, source)
-    source: 'custom' | None
-    所有用户（含管理员）均需自行配置 Key
+    """获取 platform 托管的 DeepSeek API Key, 返回 (key, source).
+
+    P3 砍刀流: 永远走 os.environ['DEEPSEEK_API_KEY'], 不再读 user.custom_api_key_enc.
+    缺 env 时 source 为 None, 由 caller 决定如何处理 (通常应已被启动校验拦下).
     """
-    from crypto_utils import decrypt_api_key
-    if current_user.custom_api_key_enc:
-        try:
-            key = decrypt_api_key(current_user.custom_api_key_enc)
-            if key:
-                return key, "custom"
-        except Exception:
-            pass
+    key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if key:
+        return key, "platform"
     return None, None
 
 
@@ -1776,25 +1777,15 @@ def batch_start_real(batch_id):
     if batch.user_id != current_user.id:
         return jsonify({"error": "只有批次的上传者可以启动该批次"}), 403
 
-    # ── 拉用户的 DeepSeek Key（不在则 400，不进队列）────────────────
+    # ── 用 platform 托管的 DeepSeek Key (P3 砍刀流后所有用户共享 env key) ─────
     owner = db.session.get(User, batch.user_id)
     if owner is None:
         return jsonify({"error": "找不到批次上传者账号"}), 400
-    if not owner.custom_api_key_enc:
+    api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if not api_key:
         return jsonify({
-            "error": "请先在「账号设置」中配置 DeepSeek API Key 后再启动批次",
-        }), 400
-    try:
-        from crypto_utils import decrypt_api_key
-        api_key = decrypt_api_key(owner.custom_api_key_enc)
-    except Exception as e:
-        return jsonify({
-            "error": f"DeepSeek Key 解密失败（请重新到账号设置保存一次）：{type(e).__name__}",
+            "error": "服务暂不可用 (缺 DEEPSEEK_API_KEY 平台密钥, 请联系运维)",
         }), 500
-    if not (api_key or "").strip():
-        return jsonify({
-            "error": "解密出的 DeepSeek Key 为空，请到账号设置重新填写",
-        }), 400
 
     pending_items = BatchItem.query.filter_by(
         batch_pk=batch.id, status="pending"
@@ -2766,10 +2757,10 @@ def parse_text_for_build(product_type):
     if product_title:
         raw_text = f"【产品标题】{product_title}\n\n{raw_text}"
 
-    # 检查用户是否有 API Key 可用
+    # 取 platform 托管的 DeepSeek key (P3 砍刀流后所有用户共用)
     api_key, key_source = _get_user_api_key()
     if not api_key:
-        return jsonify({"error": "请先在「账号设置」中配置您的 DeepSeek API Key"}), 403
+        return jsonify({"error": "服务暂不可用 (缺 DEEPSEEK_API_KEY 平台密钥, 请联系运维)"}), 503
 
     # 直接调 DeepSeek —— 必须用 AI 才能生成 advantage_labels 和 clean_story
     try:
