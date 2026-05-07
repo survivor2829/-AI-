@@ -92,6 +92,10 @@ services:
       - uploads:/app/static/uploads
       - outputs:/app/static/outputs
       - ai_cache:/app/static/cache
+      # AI 精修 v2 产物 (8 屏图 + assembled.png + _summary.json, ~¥5-8/产品).
+      # 2026-05-07 事故: 漏挂 named volume 导致 deploy 重建时整个目录被清,
+      # 用户已生成的精修产物全丢. 必须 named volume 跟 uploads/outputs 同等持久化.
+      - ai_refine_v2:/app/static/ai_refine_v2
       # 兼容老部署: 仍挂 instance/, 但生产用 Postgres 后它只存调试 sqlite (如有)
       - ./instance:/app/instance
 
@@ -101,3 +105,4 @@ volumes:
   uploads:
   outputs:
   ai_cache:
+  ai_refine_v2:
