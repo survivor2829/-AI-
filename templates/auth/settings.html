@@ -94,28 +94,11 @@
   </div>
 
   <div class="card">
-    <div class="card-title">API Key 设置</div>
-
-    <div class="status-box">
-      使用 AI 识别功能需要配置您自己的 DeepSeek API Key。
-      <br>获取方式：访问 <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a> 注册并创建 Key。
+    <div class="card-title">服务说明</div>
+    <div class="info-row">
+      <span class="info-label">AI 服务</span>
+      <span class="info-value">由小玺 AI 平台统一托管，用户无需配置 API Key 即可使用 AI 识别 / 精修 / 生图 功能。</span>
     </div>
-
-    <form method="POST" action="{{ url_for('user_settings') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="form-group">
-        <label class="form-label">DeepSeek API Key</label>
-        <input type="password" name="custom_api_key" class="form-input" placeholder="{{ '已配置（重新输入可更换）' if has_custom_key else '请输入 sk-...' }}" autocomplete="off">
-        <div class="form-hint">
-          {% if has_custom_key %}
-            当前状态：<span style="color:#059669;font-weight:500">已配置</span>（AI 识别功能可用）
-          {% else %}
-            当前状态：<span style="color:var(--color-error);font-weight:500">未配置</span>（AI 识别功能不可用）
-          {% endif %}
-        </div>
-      </div>
-      <button type="submit" class="btn btn-primary">保存设置</button>
-    </form>
   </div>
 </body>
 </html>

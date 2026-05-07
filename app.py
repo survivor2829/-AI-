@@ -27,6 +27,24 @@ import batch_pubsub as batch_pubsub_mod
 # 加载 .env 文件（本地开发用，生产环境靠系统环境变量）
 load_dotenv(Path(__file__).parent / ".env")
 
+# ── P3 砍刀流: 启动校验 platform key 完整性 (per master roadmap §8) ──
+# 用户登录后不再自配 API key, 所有调用走 env. 缺任一必填项立即 fail-fast,
+# 避免运行时才发现 key 缺失导致用户看到 5xx.
+# Note: 测试时由 conftest.py 注入 fake key; 生产环境必须在 .env 或系统环境变量中配齐.
+_REQUIRED_PLATFORM_KEYS = [
+    "DEEPSEEK_API_KEY",       # 文案 AI 解析
+    "REFINE_API_KEY",         # gpt-image-2 精修
+    "REFINE_API_BASE_URL",    # 精修 API endpoint (反硬编码: 不留 fallback default)
+]
+_in_test_or_dev_mode = "pytest" in sys.modules or os.environ.get("FLASK_ENV") == "development"
+_missing_platform_keys = [k for k in _REQUIRED_PLATFORM_KEYS if not os.environ.get(k, "").strip()]
+if _missing_platform_keys and not _in_test_or_dev_mode:
+    raise RuntimeError(
+        f"\n[启动校验] 缺以下 platform key: {_missing_platform_keys}\n"
+        f"  请在 .env 配齐后重启 (参考 .env.example).\n"
+        f"  P3 砍刀流后用户不再自配 key, 必须 platform 全配."
+    )
+
 import threading
 from flask import Flask, request, jsonify, send_file, send_from_directory, render_template, redirect, url_for, abort, flash
 from flask_login import login_required, current_user
@@ -63,10 +81,22 @@ PROXY = {"http": _proxy_url, "https": _proxy_url} if _proxy_url else {}
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
-_secret_key = os.environ.get("SECRET_KEY", "")
-if not _secret_key and os.environ.get("FLASK_ENV") != "development":
-    print("[警告] 未设置 SECRET_KEY 环境变量，使用开发默认值（生产环境请务必设置）")
-app.config["SECRET_KEY"] = _secret_key or "dev-change-me-in-production"
+# ── P4 §A.1 修复: SECRET_KEY 必填, 不再有公开默认值兜底 ──
+# 原 bug: `_secret_key or "dev-change-me-in-production"` 在生产环境 SECRET_KEY
+# 缺失时会静默用公开字符串, 攻击者可伪造 session cookie 接管账号.
+# 修复 (per audit stub A1 方案 A): 非 development 直接 sys.exit(1) fail-fast.
+_secret_key = os.environ.get("SECRET_KEY", "").strip()
+if not _secret_key:
+    if os.environ.get("FLASK_ENV") == "development":
+        _secret_key = "dev-change-me-in-production"
+    else:
+        sys.stderr.write(
+            "[FATAL] SECRET_KEY 未设, 拒绝在非 development 环境启动.\n"
+            "  生成: python -c \"import secrets; print(secrets.token_hex(32))\"\n"
+            "  写入 .env: SECRET_KEY=<生成值>\n"
+        )
+        sys.exit(1)
+app.config["SECRET_KEY"] = _secret_key
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///wubaoyun.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -85,7 +115,7 @@ if not _db_url.startswith("sqlite"):
     }
 
 # ── 初始化扩展 ──
-from extensions import db, login_manager, migrate
+from extensions import db, login_manager, migrate, limiter
 from models import User, GenerationLog, Batch, BatchItem
 from sqlalchemy import func as _sa_func
 import json as _json_mod
@@ -98,6 +128,7 @@ sock = _Sock(app)
 db.init_app(app)
 login_manager.init_app(app)
 migrate.init_app(app, db)
+limiter.init_app(app)  # P4 §A.4: 登录暴力破解限流, 装饰器在 auth.py
 
 # ── SQLite 默认 PRAGMA foreign_keys=OFF, 必须每连接都打开,
 #    否则 ON DELETE CASCADE 不生效 → 删 Batch 不会带走 BatchItem,
@@ -1058,39 +1089,22 @@ def build_redirect(product_type):
     return render_template("workspace.html", initial_product_type=product_type)
 
 
-# ── 用户设置页 ──
-@app.route("/settings", methods=["GET", "POST"])
+# ── 用户设置页 (P3 砍刀流后仅展示账号信息, 不再有 API Key 配置) ──
+@app.route("/settings", methods=["GET"])
 @login_required
 def user_settings():
-    from crypto_utils import encrypt_api_key
-    has_custom_key = bool(current_user.custom_api_key_enc)
-
-    if request.method == "POST":
-        new_key = request.form.get("custom_api_key", "").strip()
-        if new_key:
-            current_user.custom_api_key_enc = encrypt_api_key(new_key)
-            db.session.commit()
-            flash("API Key 已保存", "success")
-        elif not new_key and has_custom_key:
-            pass  # 空提交不清除已有 Key
-        return redirect(url_for("user_settings"))
-
-    return render_template("auth/settings.html", has_custom_key=has_custom_key)
+    return render_template("auth/settings.html")
 
 
 def _get_user_api_key():
-    """获取当前用户应使用的 API Key，返回 (key, source)
-    source: 'custom' | None
-    所有用户（含管理员）均需自行配置 Key
+    """获取 platform 托管的 DeepSeek API Key, 返回 (key, source).
+
+    P3 砍刀流: 永远走 os.environ['DEEPSEEK_API_KEY'], 不再读 user.custom_api_key_enc.
+    缺 env 时 source 为 None, 由 caller 决定如何处理 (通常应已被启动校验拦下).
     """
-    from crypto_utils import decrypt_api_key
-    if current_user.custom_api_key_enc:
-        try:
-            key = decrypt_api_key(current_user.custom_api_key_enc)
-            if key:
-                return key, "custom"
-        except Exception:
-            pass
+    key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if key:
+        return key, "platform"
     return None, None
 
 
@@ -1937,25 +1951,15 @@ def batch_start_real(batch_id):
     if batch.user_id != current_user.id:
         return jsonify({"error": "只有批次的上传者可以启动该批次"}), 403
 
-    # ── 拉用户的 DeepSeek Key（不在则 400，不进队列）────────────────
+    # ── 用 platform 托管的 DeepSeek Key (P3 砍刀流后所有用户共享 env key) ─────
     owner = db.session.get(User, batch.user_id)
     if owner is None:
         return jsonify({"error": "找不到批次上传者账号"}), 400
-    if not owner.custom_api_key_enc:
+    api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if not api_key:
         return jsonify({
-            "error": "请先在「账号设置」中配置 DeepSeek API Key 后再启动批次",
-        }), 400
-    try:
-        from crypto_utils import decrypt_api_key
-        api_key = decrypt_api_key(owner.custom_api_key_enc)
-    except Exception as e:
-        return jsonify({
-            "error": f"DeepSeek Key 解密失败（请重新到账号设置保存一次）：{type(e).__name__}",
+            "error": "服务暂不可用 (缺 DEEPSEEK_API_KEY 平台密钥, 请联系运维)",
         }), 500
-    if not (api_key or "").strip():
-        return jsonify({
-            "error": "解密出的 DeepSeek Key 为空，请到账号设置重新填写",
-        }), 400
 
     pending_items = BatchItem.query.filter_by(
         batch_pk=batch.id, status="pending"
@@ -2068,6 +2072,7 @@ def single_mock_task():
             task_id=tid,
             payload={"name": f"mock_single_{i}"},
             processor_fn=batch_queue_mod.mock_processor,
+            user_id=current_user.id,  # P4 §A.6: owner 标记防 IDOR
         )
         task_ids.append(tid)
     return jsonify({"ok": True, "submitted": count, "task_ids": task_ids})
@@ -2076,9 +2081,13 @@ def single_mock_task():
 @app.route("/api/single/<task_id>/status", methods=["GET"])
 @login_required
 def single_task_status(task_id):
+    """P4 §A.6 owner 校验防 IDOR: state.user_id 必须等于 current_user.id (或 admin)."""
     state = batch_queue_mod.get_single_status(task_id)
     if state is None:
         return jsonify({"error": f"任务未找到: {task_id}"}), 404
+    owner_id = state.get("user_id")
+    if owner_id != current_user.id and not current_user.is_admin:
+        abort(403)
     return jsonify(state)
 
 
@@ -2927,10 +2936,10 @@ def parse_text_for_build(product_type):
     if product_title:
         raw_text = f"【产品标题】{product_title}\n\n{raw_text}"
 
-    # 检查用户是否有 API Key 可用
+    # 取 platform 托管的 DeepSeek key (P3 砍刀流后所有用户共用)
     api_key, key_source = _get_user_api_key()
     if not api_key:
-        return jsonify({"error": "请先在「账号设置」中配置您的 DeepSeek API Key"}), 403
+        return jsonify({"error": "服务暂不可用 (缺 DEEPSEEK_API_KEY 平台密钥, 请联系运维)"}), 503
 
     # 直接调 DeepSeek —— 必须用 AI 才能生成 advantage_labels 和 clean_story
     try:
@@ -4686,6 +4695,7 @@ def ai_refine_v2_execute():
         deepseek_key=deepseek_key,
         gpt_image_key=gpt_image_key,
         mode=schema_mode,
+        user_id=current_user.id,  # P4 §A.6: owner 标记防 IDOR
     )
     mode = pipeline_runner._detect_mode(deepseek_key, gpt_image_key)
     return jsonify({
@@ -4704,11 +4714,18 @@ def ai_refine_v2_execute():
 @app.route("/api/ai-refine-v2/status/<task_id>", methods=["GET"])
 @login_required
 def ai_refine_v2_status(task_id: str):
-    """轮询 v2 精修任务进度. 返回 status / progress_pct / progress_msg / 结果字段."""
+    """轮询 v2 精修任务进度. 返回 status / progress_pct / progress_msg / 结果字段.
+
+    P4 §A.6 owner 校验防 IDOR: state.user_id 必须等于 current_user.id (或 admin).
+    历史任务 (无 user_id) 仅 admin 可读.
+    """
     from ai_refine_v2 import pipeline_runner
     state = pipeline_runner.get_task_status(task_id)
     if state is None:
         return jsonify({"error": f"任务不存在或已过期: {task_id}"}), 404
+    owner_id = state.get("user_id")
+    if owner_id != current_user.id and not current_user.is_admin:
+        abort(403)
     return jsonify(state)
 
 
