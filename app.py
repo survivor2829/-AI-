@@ -12,6 +12,7 @@ if hasattr(sys.stderr, "reconfigure"):
 import uuid
 import json
 import re
+import time
 import zlib
 from functools import lru_cache
 from pathlib import Path
@@ -1768,6 +1769,166 @@ def batch_ai_refine_start(batch_id):
         "skipped": skipped,
         "already_done_count": already_done,
     })
+
+
+# ── v3.3 单屏 reroll 锁字典 (per-process, gthread worker 共享) ──
+_REGEN_LOCKS: dict[str, threading.Lock] = {}
+_REGEN_LOCKS_GUARD = threading.Lock()
+
+
+def _get_regen_lock(item_pk: int, block_index: int) -> threading.Lock:
+    key = f"{item_pk}:{block_index}"
+    with _REGEN_LOCKS_GUARD:
+        lk = _REGEN_LOCKS.get(key)
+        if lk is None:
+            lk = threading.Lock()
+            _REGEN_LOCKS[key] = lk
+        return lk
+
+
+@app.route(
+    "/api/batch/<batch_id>/items/<int:item_pk>/regenerate-screen",
+    methods=["POST"],
+)
+@login_required
+def batch_item_regenerate_screen(batch_id, item_pk):
+    """v3.3 单屏 reroll. spec: 2026-04-30-regenerate-screen-design.md"""
+    batch = Batch.query.filter_by(batch_id=batch_id).first()
+    if batch is None:
+        return jsonify({"error": f"批次不存在: {batch_id}"}), 404
+    # owner 校验严格度跟 /ai-refine-start 拉齐 (app.py:1631):
+    # "user_id is None or != current_user.id" — 拒绝 NULL owner (legacy 数据安全).
+    # 不能写成 "is not None and !=" — 那样 NULL owner 任何人都能 reroll → 跨用户扣费漏洞.
+    if batch.user_id is None or batch.user_id != current_user.id:
+        return jsonify({"error": "只有批次上传者可以重生"}), 403
+
+    item = BatchItem.query.filter_by(id=item_pk, batch_pk=batch.id).first()
+    if item is None:
+        return jsonify({"error": f"产品不存在: {item_pk}"}), 404
+
+    if item.ai_refine_status != "done":
+        return jsonify({
+            "error": "仅完成的产品可 reroll",
+            "current_status": item.ai_refine_status,
+        }), 409
+
+    data = request.get_json(silent=True) or {}
+    if "block_index" not in data:
+        return jsonify({"error": "block_index 必填"}), 400
+    try:
+        block_index = int(data["block_index"])
+    except (TypeError, ValueError):
+        return jsonify({"error": "block_index 必须是整数"}), 400
+
+    # Task 6: 锁 + 真实调用 + WS publish
+    lock = _get_regen_lock(item_pk, block_index)
+    if not lock.acquire(blocking=False):
+        return jsonify({
+            "error": "另一个 reroll 进行中, 请稍候",
+        }), 423
+
+    try:
+        # 解析 result JSON 拿 task_id
+        try:
+            result_dict = json.loads(item.result or "{}")
+        except json.JSONDecodeError:
+            return jsonify({"error": "item.result 不是合法 JSON"}), 500
+        task_id = (result_dict.get("task_id") or "").strip()
+        if not task_id:
+            return jsonify({
+                "error": "item 缺 task_id, 无法 reroll. 重启精修.",
+            }), 410
+
+        task_dir = BASE_DIR / "static" / "ai_refine_v2" / task_id
+        if not task_dir.is_dir():
+            return jsonify({
+                "error": "原始任务产物已清理, 无法 reroll. 重启精修.",
+            }), 410
+
+        # cutout: 从 main_image_path / parsed_json_path 推算 product_dir
+        cutout_path = None
+        try:
+            main_url = (item.main_image_path or "").lstrip("/")
+            if main_url.startswith("uploads/"):
+                main_url = "static/" + main_url
+            elif not main_url.startswith("static/"):
+                main_url = ""
+            if main_url:
+                product_dir = (BASE_DIR / main_url).parent
+                cand = product_dir / "product_cut.png"
+                if cand.is_file():
+                    cutout_path = cand
+        except Exception:
+            cutout_path = None
+
+        deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        gpt_image_key = os.environ.get("GPT_IMAGE_API_KEY", "").strip()
+        if not (deepseek_key and gpt_image_key):
+            return jsonify({
+                "error": "服务端 v2 key 未配齐",
+            }), 503
+
+        from ai_refine_v2.regen_single import regenerate_screen
+        try:
+            regen = regenerate_screen(
+                task_dir=task_dir,
+                block_index=block_index,
+                cutout_path=cutout_path,
+                deepseek_key=deepseek_key,
+                gpt_image_key=gpt_image_key,
+            )
+        except IndexError as e:
+            return jsonify({"error": str(e)}), 400
+        except FileNotFoundError as e:
+            return jsonify({"error": str(e)}), 410
+        except Exception as e:
+            return jsonify({
+                "error": f"重生成失败: {type(e).__name__}: {e}",
+            }), 500
+
+        # 把 regen.new_assembled_path (PNG) 转 JPG 覆盖到产品目录的 ai_refined.jpg
+        ai_refined_url = (result_dict.get("ai_refined_path") or "").strip()
+        new_assembled_url = ai_refined_url  # default fallback
+        if ai_refined_url:
+            try:
+                rel = ai_refined_url.lstrip("/")
+                if rel.startswith("uploads/"):
+                    rel = "static/" + rel
+                ai_refined_fs = BASE_DIR / rel
+                if ai_refined_fs.parent.is_dir():
+                    from PIL import Image as _PIL_Image
+                    img = _PIL_Image.open(regen.new_assembled_path).convert("RGB")
+                    img.save(ai_refined_fs, format="JPEG", quality=90, optimize=True)
+                    cache_bust = int(time.time())
+                    new_assembled_url = f"{ai_refined_url}?v={cache_bust}"
+            except Exception as _conv_e:
+                print(f"[regen] 转 JPG 失败 (保留旧 assembled): {_conv_e}", flush=True)
+
+        # WS publish (cache-bust query)
+        cache_bust = int(time.time())
+        new_block_url = (
+            f"/static/ai_refine_v2/{task_id}/block_{block_index}.jpg?v={cache_bust}"
+        )
+        batch_pubsub_mod.publish(batch_id, {
+            "type": "screen_regenerated",
+            "batch_id": batch_id,
+            "item_pk": item_pk,
+            "block_index": block_index,
+            "new_block_url": new_block_url,
+            "new_assembled_url": new_assembled_url,
+            "cost_rmb": regen.cost_rmb,
+            "ts": cache_bust,
+        })
+
+        return jsonify({
+            "ok": True,
+            "block_index": block_index,
+            "new_block_url": new_block_url,
+            "new_assembled_url": new_assembled_url,
+            "cost_rmb": regen.cost_rmb,
+        }), 200
+    finally:
+        lock.release()
 
 
 @app.route("/api/batch/<batch_id>/start", methods=["POST"])
