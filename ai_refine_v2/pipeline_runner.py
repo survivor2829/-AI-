@@ -84,9 +84,54 @@ def _set(task_id: str, **fields):
 
 
 def get_task_status(task_id: str) -> dict | None:
+    """读 task 状态. 优先 in-memory, 缺失时从磁盘 _summary.json 重建.
+
+    Why fallback: in-memory _TASKS 在 worker 重启 / 内存清理后会丢失,
+    但磁盘 _summary.json + 8 屏图 + assembled.png 仍保留. 不 fallback 的话
+    端点返 404 → 前端误报"AI精修失败" (实际任务已成功). 真实事故见
+    2026-05-07 v2_1778126382035_b3cca1: 8 屏 success + assembled.png 13MB
+    在磁盘但 _TASKS 内存丢, 用户被迫重跑浪费 ¥5.6.
+
+    P4 §A.6 兼容: 磁盘 fallback 重建的 task user_id=None, 端点 ai_refine_v2_status
+    校验 owner_id != current_user.id 且非 admin 时 abort(403). 即历史任务仅 admin 可读,
+    与现有 P4 owner check 一致.
+    """
     with _TASKS_LOCK:
         st = _TASKS.get(task_id)
-        return st.to_dict() if st else None
+        if st:
+            return st.to_dict()
+
+    # Fallback: 内存丢失但磁盘有任务产物
+    summary_file = _OUTPUT_BASE / task_id / "_summary.json"
+    if not summary_file.is_file():
+        return None
+    try:
+        data = json.loads(summary_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    assembled_file = _OUTPUT_BASE / task_id / "assembled.png"
+    assembled_url = (
+        f"/static/ai_refine_v2/{task_id}/assembled.png"
+        if assembled_file.is_file() else ""
+    )
+    return {
+        "task_id": task_id,
+        "user_id": None,  # 历史任务无 owner 标记 → 仅 admin 可读 (P4 §A.6)
+        "status": "success",  # _summary.json 落盘等于任务已完成
+        "mode": data.get("mode", "unknown"),
+        "progress_pct": 100,
+        "progress_msg": "已完成 (从磁盘恢复)",
+        "started_at": 0.0,
+        "elapsed_s": 0.0,
+        "cost_rmb": float(data.get("total_cost_rmb", 0.0) or 0.0),
+        "planning": None,
+        "blocks": data.get("blocks", []) or [],
+        "raw_urls": data.get("raw_urls", []) or [],
+        "assembled_url": assembled_url,
+        "error": "",
+        "error_trace": "",
+    }
 
 
 # ─────────────────────────────────────────────────────────────
