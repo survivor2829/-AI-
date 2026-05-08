@@ -1071,6 +1071,10 @@
   }
 
   function injectProgressCard() {
+    // 2026-05-08: 加幂等 guard — ai-refine-start 路径会重复 inject (用户多次
+    // 点 AI 精修), 不 guard 会有重复 DOM #progressCard 节点导致 querySelector
+    // 行为不可预测.
+    if (document.getElementById('progressCard')) return;
     // 把进度条 + 计数 + WS 状态指示插到结果卡片上方
     const card = document.createElement('div');
     card.className = 'progress-card';
@@ -1128,6 +1132,14 @@
   let pollingTimer = null;
 
   function openWS(batchId) {
+    // 2026-05-08: 加幂等 guard — 同 batch_id 的 WS 已开就别开第二个,
+    // 避免重复连接 / 双倍 onmessage 处理.
+    if (session.ws
+        && (session.ws.readyState === WebSocket.OPEN
+            || session.ws.readyState === WebSocket.CONNECTING)
+        && session.wsBatchId === batchId) {
+      return;
+    }
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = `${proto}//${location.host}/ws/batch/${batchId}`;
     setWSState('connecting', '连接中...');
@@ -1732,6 +1744,11 @@
           + (Array.isArray(data.skipped) && data.skipped.length
               ? ` · ${data.skipped.length} 个已跳过` : '');
         setStatus(msg, 'success');
+        // 2026-05-08: 接管进度 UI (此前 ai-refine-start 200 后无任何进度
+        // 显示, 用户只能盲等 5-15 min). 幂等: injectProgressCard / openWS
+        // 都自带 guard, 重复点不会出问题.
+        injectProgressCard();
+        openWS(session.batchId);
       })
       .catch(err => {
         alert('网络异常: ' + (err.message || String(err)));
