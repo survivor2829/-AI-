@@ -1348,11 +1348,14 @@
         : mode === 'partial-mock' ? '⚠️ 部分占位 (缺 DEEPSEEK_API_KEY)'
         : '⚠️ 全占位 (服务端未配置 key, UI 自检模式)';
 
-      // 2. 轮询 /status (2s/次, 最多 6 分钟)
+      // 2. 轮询 /status (2s/次, 最多 10 分钟)
       // 容错: 如果 status 端点返回 404 / 5xx (gunicorn 多 worker _TASKS 不共享
       // 可能命中没有该任务的 worker), 视为 transient 跳过本轮, 下一轮重试.
       // 本是 2026-04-29 现场踩坑诊断后加的防御层.
-      const maxIter = 180;
+      // 2026-05-07: 6 min → 10 min (180 → 300). 12 屏 task + APIMart 503 重试
+      // 实际跑 ~6 min, 边界踩死. PR #17 disk fallback 兜底"task done 但内存丢"
+      // 场景, 但需要等磁盘 _summary.json 落盘. 多 4 min 让 fallback 生效.
+      const maxIter = 300;
       let finalState = null;
       let consecutiveNotFound = 0;
       for (let i = 0; i < maxIter; i++) {
@@ -1382,7 +1385,7 @@
           break;
         }
       }
-      if (!finalState) throw new Error('轮询超时 (>6 分钟)');
+      if (!finalState) throw new Error('轮询超时 (>10 分钟)');
       if (finalState.status === 'failed') {
         throw new Error(finalState.error || 'pipeline failed');
       }
