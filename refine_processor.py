@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import time
 import traceback
@@ -162,8 +163,15 @@ def refine_one_product(scope_id: str, payload: dict, *, ark_api_key: str) -> dic
         product_category=product_category,  # PR A reorder gating
     )
 
-    # 同步等待 v2 task 完成 (轮询 _TASKS, 6 分钟超时上限).
-    timeout_s = 360
+    # 同步等待 v2 task 完成 (轮询 _TASKS).
+    # 2026-05-08: 360s → 900s (6 → 15 min). 真实事故同日 batch_20260508_001_e63a/
+    # 龙克洗地机吸水电机三层风叶, 设备类 8 屏 + APIMart 偶发 503/timeout 重试,
+    # 实际 360s 时只跑到 5/8 屏, 直接 raise TimeoutError, v2 task 后台死透
+    # 磁盘 0 产物, 用户 ¥5 烧无回报. 是 PR #25 polling timeout (前端 6→10min)
+    # 的后端镜像 — 同根因, 两条独立代码路径, 之前只修了前端.
+    # 上限 900s (15 min): 设备类 8 屏 + 重试 buffer + 50% 余量, 12 屏耗材类
+    # 也能跑通. 走 env var 让运维不重 build 也能临时调.
+    timeout_s = int(os.environ.get("BATCH_REFINE_TIMEOUT_S", "900"))
     poll_interval = 3.0
     elapsed = 0.0
     last_msg = ""
@@ -184,7 +192,9 @@ def refine_one_product(scope_id: str, payload: dict, *, ark_api_key: str) -> dic
                 f"v2 task 失败: {state.get('error','')} | trace: {state.get('error_trace','')[:500]}"
             )
     else:
-        raise TimeoutError(f"v2 task {task_id} 超过 {timeout_s}s 仍未完成")
+        raise TimeoutError(
+            f"v2 task {task_id} 超过 {timeout_s}s ({timeout_s // 60} min) 仍未完成"
+        )
 
     # 拷贝 v2 产物 assembled.{png,jpg} → product_dir/ai_refined.jpg
     v2_task_dir = BASE_DIR / "static" / "ai_refine_v2" / task_id
