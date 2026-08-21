@@ -1,0 +1,12 @@
+{
+  "pages": [
+    "pages/assistant/index"
+  ],
+  "window": {
+    "navigationStyle": "custom",
+    "backgroundColor": "#fff9f3",
+    "backgroundTextStyle": "dark"
+  },
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents"
+}

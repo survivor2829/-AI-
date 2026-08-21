@@ -1,0 +1,256 @@
+<view class="assistant-page">
+  <image
+    wx:if="{{!conversationStarted}}"
+    class="community-art"
+    src="/assets/images/community-landscape.png"
+    mode="aspectFill"
+  />
+
+  <view
+    class="app-header"
+    style="padding-top: {{headerTop}}px;"
+  >
+    <view class="brand-row" style="padding-right: {{headerRight}}px;">
+      <button
+        wx:if="{{conversationStarted}}"
+        class="header-home"
+        aria-label="返回首页"
+        hover-class="button--pressed"
+        bindtap="returnHome"
+      >
+        <image class="header-home__icon" src="/assets/icons/chevron.svg" mode="aspectFit" />
+        <text class="header-home__label">首页</text>
+      </button>
+      <view wx:else class="brand-mark">
+        <image src="/assets/icons/brand.svg" mode="aspectFit" />
+      </view>
+      <text class="brand-name">{{brand.name}}</text>
+    </view>
+    <button class="house-selector" bindtap="showHouseNotice">
+      <image src="/assets/icons/home.svg" mode="aspectFit" />
+      <text class="house-selector__label">{{houseLabel}}</text>
+      <image class="house-selector__chevron" src="/assets/icons/chevron-down.svg" mode="aspectFit" />
+    </button>
+  </view>
+
+  <view
+    wx:if="{{!conversationStarted}}"
+    class="discovery-content"
+    style="top: {{contentTop}}px; bottom: {{halfSheetHeight}}px;"
+  >
+    <view class="welcome-panel">
+      <view class="assistant-orb">
+        <image src="/assets/icons/brand.svg" mode="aspectFit" />
+      </view>
+      <text class="welcome-title">{{brand.greeting}}</text>
+      <text class="welcome-subtitle">{{brand.subtitle}}</text>
+    </view>
+
+    <chat-composer
+      large
+      value="{{inputValue}}"
+      disabled="{{isBusy}}"
+      voice-state="{{voiceState}}"
+      bindchange="handleInputChange"
+      bindfocus="handleComposerFocus"
+      bindsubmit="handleSubmit"
+      bindvoice="handleVoice"
+    />
+
+    <view class="quick-row">
+      <button
+        wx:for="{{quickIntents}}"
+        wx:key="id"
+        class="quick-card"
+        data-prompt="{{item.prompt}}"
+        bindtap="handleQuickIntent"
+      >
+        <view class="quick-icon quick-icon--{{item.tone}}">
+          <image src="{{item.icon}}" mode="aspectFit" />
+        </view>
+        <view class="quick-copy">
+          <text class="quick-copy__title">{{item.title}}</text>
+          <text class="quick-copy__subtitle">{{item.subtitle}}</text>
+        </view>
+      </button>
+    </view>
+  </view>
+
+  <scroll-view
+    wx:else
+    class="chat-stream"
+    style="top: {{contentTop}}px; bottom: {{chatBottom}}px;"
+    scroll-y
+    enhanced
+    show-scrollbar="{{false}}"
+    scroll-into-view="{{scrollIntoView}}"
+  >
+    <view class="chat-inner">
+      <view
+        wx:for="{{messages}}"
+        wx:key="id"
+        class="message-row message-row--{{item.role}}"
+      >
+        <view wx:if="{{item.role === 'assistant'}}" class="assistant-avatar">
+          <image src="/assets/icons/brand.svg" mode="aspectFit" />
+        </view>
+        <view class="message message--{{item.role}}">{{item.text}}</view>
+      </view>
+
+      <view wx:if="{{flowState === 'interpreting'}}" class="message-row message-row--assistant">
+        <view class="assistant-avatar">
+          <image src="/assets/icons/brand.svg" mode="aspectFit" />
+        </view>
+        <view class="message message--assistant message--status">{{statusText}}</view>
+      </view>
+
+      <view wx:if="{{bill}}" class="business-card bill-card">
+        <view class="bill-head">
+          <view class="bill-icon">
+            <image src="/assets/icons/bill.svg" mode="aspectFit" />
+          </view>
+          <view class="bill-head__copy">
+            <text>物业欠费账单</text>
+            <text>{{receipt ? '已支付 ' : '待缴 '}}{{bill.amountText}}</text>
+          </view>
+          <text class="status-tag {{receipt ? 'status-tag--paid' : ''}}">
+            {{receipt ? '已完成' : '待确认'}}
+          </text>
+        </view>
+
+        <view class="bill-fields">
+          <view><text>房屋</text><text>{{bill.house.address}}</text></view>
+          <view><text>账期</text><text>{{bill.period}}</text></view>
+          <view><text>费用类型</text><text>{{bill.feeType}}</text></view>
+        </view>
+
+        <view class="amount-row">
+          <text>应缴金额</text>
+          <text>{{bill.amountText}}</text>
+        </view>
+
+        <view class="bill-actions">
+          <button
+            class="secondary-button bill-action"
+            hover-class="button--pressed"
+            bindtap="showBillDetails"
+          >
+            <image class="bill-action__icon" src="/assets/icons/bill.svg" mode="aspectFit" />
+            <text class="bill-action__label">账单明细</text>
+          </button>
+          <button
+            class="primary-button bill-action {{receipt || flowState === 'paying' ? 'primary-button--disabled' : ''}}"
+            disabled="{{receipt || flowState === 'paying'}}"
+            hover-class="button--pressed"
+            bindtap="requestPaymentConfirmation"
+          >
+            <text class="bill-action__label">{{receipt ? '支付已完成' : '确认缴费'}}</text>
+          </button>
+        </view>
+        <text class="data-note">金额来自物业业务数据，AI 不生成金额</text>
+      </view>
+
+      <view wx:if="{{receipt}}" class="business-card receipt-card">
+        <view class="receipt-success">
+          <image src="/assets/icons/success.svg" mode="aspectFit" />
+          <view>
+            <text>模拟支付成功</text>
+            <text>电子回执已生成</text>
+          </view>
+        </view>
+        <view class="receipt-amount">{{receipt.amountText}}</view>
+        <view class="receipt-fields">
+          <view><text>回执编号</text><text>{{receipt.receiptNo}}</text></view>
+          <view><text>支付时间</text><text>{{receipt.paidAt}}</text></view>
+          <view><text>支付方式</text><text>{{receipt.paymentMethod}}</text></view>
+          <view><text>房屋</text><text>{{receipt.house.address}}</text></view>
+        </view>
+        <button class="receipt-button" bindtap="showReceiptNotice">查看电子回执</button>
+      </view>
+
+      <view id="chat-bottom" class="chat-bottom"></view>
+    </view>
+  </scroll-view>
+
+  <view
+    wx:if="{{conversationStarted}}"
+    class="composer-dock"
+    style="padding-bottom: {{safeBottom + 12}}px;"
+  >
+    <chat-composer
+      value="{{inputValue}}"
+      placeholder="继续提问或办理其他事项…"
+      disabled="{{isBusy}}"
+      voice-state="{{voiceState}}"
+      bindchange="handleInputChange"
+      bindfocus="handleComposerFocus"
+      bindsubmit="handleSubmit"
+      bindvoice="handleVoice"
+    />
+  </view>
+
+  <service-sheet
+    state="{{sheetState}}"
+    featured="{{featuredServices}}"
+    groups="{{serviceGroups}}"
+    safe-bottom="{{safeBottom}}"
+    half-height="{{halfSheetHeight}}"
+    bindstatechange="handleSheetStateChange"
+    bindclose="handleSheetClose"
+    bindselect="handleServiceSelect"
+  />
+
+  <view
+    wx:if="{{flowState === 'confirming' || flowState === 'paying'}}"
+    class="modal-layer"
+    catchtouchmove="noop"
+  >
+    <view class="modal-scrim" bindtap="cancelPaymentConfirmation"></view>
+    <view class="payment-panel {{flowState === 'paying' ? 'payment-panel--paying' : ''}}" catchtap="noop">
+      <view class="payment-panel__icon">
+        <image src="/assets/icons/wallet.svg" mode="aspectFit" />
+      </view>
+      <text class="payment-panel__title">{{flowState === 'paying' ? '正在模拟支付' : '确认本次缴费'}}</text>
+      <text class="payment-panel__amount">{{bill.amountText}}</text>
+      <text class="payment-panel__subtitle">物业欠费账单 · {{bill.period}}</text>
+      <view class="payment-summary">
+        <view><text>缴费房屋</text><text>{{bill.house.address}}</text></view>
+        <view><text>账期</text><text>{{bill.period}}</text></view>
+        <view><text>支付方式</text><text>微信支付（模拟）</text></view>
+      </view>
+      <view class="demo-warning">
+        <text>Demo 模拟支付，不会产生实际扣款</text>
+      </view>
+      <button
+        class="confirm-pay-button"
+        disabled="{{flowState === 'paying'}}"
+        hover-class="button--pressed"
+        bindtap="confirmPayment"
+      >
+        {{flowState === 'paying' ? '模拟支付处理中…' : '确认并模拟支付'}}
+      </button>
+      <button
+        wx:if="{{flowState === 'confirming'}}"
+        class="cancel-pay-button"
+        hover-class="button--pressed"
+        bindtap="cancelPaymentConfirmation"
+      >返回账单</button>
+    </view>
+  </view>
+
+  <view wx:if="{{detailVisible}}" class="modal-layer" catchtouchmove="noop">
+    <view class="modal-scrim" bindtap="hideBillDetails"></view>
+    <view class="detail-panel" catchtap="noop">
+      <text class="detail-title">账单明细</text>
+      <view wx:for="{{bill.items}}" wx:key="id" class="detail-row">
+        <text>{{item.title}}</text>
+        <text>{{item.amountText}}</text>
+      </view>
+      <view class="detail-total">
+        <text>合计</text>
+        <text>{{bill.amountText}}</text>
+      </view>
+      <button class="detail-close" bindtap="hideBillDetails">我知道了</button>
+    </view>
+  </view>
+</view>

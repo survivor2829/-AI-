@@ -1,0 +1,79 @@
+<view class="service-layer">
+  <view
+    wx:if="{{state === 'full'}}"
+    class="service-scrim"
+    catchtouchmove="stopTouchMove"
+    bindtap="onClose"
+  ></view>
+
+  <button
+    wx:if="{{state === 'collapsed'}}"
+    class="service-entry"
+    style="bottom: {{safeBottom + 92}}px;"
+    bindtap="onOpen"
+  >
+    <image class="service-entry__icon" src="/assets/icons/apps.svg" mode="aspectFit" />
+    <text>全部服务</text>
+  </button>
+
+  <view
+    wx:else
+    class="service-sheet service-sheet--{{state}}"
+    style="padding-bottom: {{safeBottom + 12}}px; height: {{state === 'half' ? halfHeight + 'px' : '78vh'}};"
+  >
+    <view
+      class="service-handle-area"
+      catchtouchstart="onTouchStart"
+      catchtouchend="onTouchEnd"
+    >
+      <view class="service-handle"></view>
+    </view>
+
+    <view class="service-heading">
+      <view>
+        <text class="service-title">{{state === 'full' ? '全部服务' : '也可以直接办理'}}</text>
+        <text wx:if="{{state === 'full'}}" class="service-subtitle">选择后仍可返回 AI 对话</text>
+      </view>
+      <button class="service-heading__action" wx:if="{{state === 'half'}}" bindtap="onOpen">全部服务</button>
+      <button class="service-heading__action" wx:else bindtap="onClose">收起</button>
+    </view>
+
+    <view wx:if="{{state === 'half'}}" class="featured-list">
+      <button
+        wx:for="{{featured}}"
+        wx:key="id"
+        class="featured-item"
+        data-item="{{item}}"
+        bindtap="onSelect"
+      >
+        <view class="featured-icon featured-icon--{{item.tone}}">
+          <image class="featured-icon__image" src="{{item.icon}}" mode="aspectFit" />
+        </view>
+        <view class="featured-copy">
+          <text class="featured-copy__title">{{item.title}}</text>
+          <text class="featured-copy__subtitle">{{item.subtitle}}</text>
+        </view>
+        <image class="featured-chevron" src="/assets/icons/chevron.svg" mode="aspectFit" />
+      </button>
+    </view>
+
+    <scroll-view wx:else class="service-groups" scroll-y enhanced show-scrollbar="{{false}}">
+      <view wx:for="{{groups}}" wx:key="id" class="service-group">
+        <text class="service-group__title">{{item.title}}</text>
+        <view class="service-grid">
+          <button
+            wx:for="{{item.items}}"
+            wx:for-item="service"
+            wx:key="id"
+            class="service-grid__item"
+            data-item="{{service}}"
+            bindtap="onSelect"
+          >
+            <image class="service-grid__icon" src="{{service.icon}}" mode="aspectFit" />
+            <text class="service-grid__label">{{service.title}}</text>
+          </button>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+</view>

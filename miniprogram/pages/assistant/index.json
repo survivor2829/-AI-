@@ -1,0 +1,7 @@
+{
+  "usingComponents": {
+    "chat-composer": "/components/chat-composer/index",
+    "service-sheet": "/components/service-sheet/index"
+  },
+  "disableScroll": true
+}

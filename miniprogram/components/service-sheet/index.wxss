@@ -1,0 +1,266 @@
+:host {
+  position: relative;
+  z-index: 40;
+}
+
+.service-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.service-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(56, 42, 34, 0.2);
+  pointer-events: auto;
+}
+
+.service-entry {
+  position: absolute;
+  left: 32rpx;
+  display: flex;
+  align-items: center;
+  height: 72rpx;
+  margin: 0;
+  padding: 0 24rpx;
+  border: 2rpx solid #e6d7cd;
+  border-radius: 24rpx;
+  background: #ffffff;
+  color: #4d4038;
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 1.2;
+  box-shadow: 0 10rpx 28rpx rgba(83, 56, 39, 0.08);
+  pointer-events: auto;
+  box-sizing: border-box;
+}
+
+.service-entry__icon {
+  width: 34rpx;
+  height: 34rpx;
+  margin-right: 12rpx;
+}
+
+.service-sheet {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  padding-right: 32rpx;
+  padding-left: 32rpx;
+  border: 2rpx solid rgba(94, 66, 48, 0.08);
+  border-bottom: 0;
+  border-radius: 48rpx 48rpx 0 0;
+  background: rgba(255, 255, 255, 0.99);
+  box-shadow: 0 -24rpx 70rpx rgba(83, 56, 39, 0.12);
+  pointer-events: auto;
+  box-sizing: border-box;
+}
+
+.service-sheet--half {
+  min-height: 0;
+}
+
+.service-sheet--full {
+  min-height: 940rpx;
+}
+
+.service-handle-area {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 42rpx;
+}
+
+.service-handle {
+  width: 88rpx;
+  height: 8rpx;
+  border-radius: 8rpx;
+  background: #cbc0b8;
+}
+
+.service-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  min-height: 78rpx;
+  padding: 0 4rpx 10rpx;
+  box-sizing: border-box;
+}
+
+.service-title,
+.service-subtitle {
+  display: block;
+}
+
+.service-title {
+  color: #2b211b;
+  font-size: 32rpx;
+  font-weight: 750;
+}
+
+.service-subtitle {
+  margin-top: 10rpx;
+  color: #8d8179;
+  font-size: 22rpx;
+}
+
+.service-heading__action {
+  min-width: 104rpx;
+  min-height: 72rpx;
+  margin: 0;
+  padding: 0 0 0 20rpx;
+  border: 0;
+  background: transparent;
+  color: #b94f2c;
+  font-size: 24rpx;
+  line-height: 72rpx;
+  text-align: right;
+  box-sizing: border-box;
+}
+
+.featured-list {
+  flex: 1;
+  min-height: 0;
+}
+
+.featured-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 96rpx;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 2rpx solid #f1e9e4;
+  background: transparent;
+  color: inherit;
+  line-height: 1.2;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.featured-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68rpx;
+  height: 68rpx;
+  border-radius: 24rpx;
+}
+
+.featured-icon--orange {
+  background: #fff0e6;
+}
+
+.featured-icon--green {
+  background: #eaf7ee;
+}
+
+.featured-icon--coral {
+  background: #fff0ec;
+}
+
+.featured-icon__image {
+  width: 38rpx;
+  height: 38rpx;
+}
+
+.featured-copy {
+  flex: 1;
+  min-width: 0;
+  margin-left: 18rpx;
+}
+
+.featured-copy__title,
+.featured-copy__subtitle {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.featured-copy__title {
+  color: #2b211b;
+  font-size: 27rpx;
+  font-weight: 700;
+}
+
+.featured-copy__subtitle {
+  margin-top: 8rpx;
+  color: #91857d;
+  font-size: 21rpx;
+}
+
+.featured-chevron {
+  flex: 0 0 auto;
+  width: 30rpx;
+  height: 30rpx;
+  margin-left: 12rpx;
+  opacity: 0.55;
+}
+
+.service-groups {
+  flex: 1;
+  min-height: 0;
+}
+
+.service-group {
+  margin-bottom: 26rpx;
+}
+
+.service-group__title {
+  display: block;
+  margin-bottom: 14rpx;
+  color: #5d5048;
+  font-size: 23rpx;
+  font-weight: 700;
+}
+
+.service-grid {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.service-grid__item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  flex: 0 0 calc((100% - 28rpx) / 3);
+  height: 116rpx;
+  margin: 0 0 14rpx;
+  padding: 0;
+  border: 2rpx solid #e6d7cd;
+  border-radius: 24rpx;
+  background: #fff9f3;
+  color: #4c4039;
+  font-size: 22rpx;
+  line-height: 1.2;
+  box-sizing: border-box;
+}
+
+.service-grid__icon {
+  width: 40rpx;
+  height: 40rpx;
+}
+
+.service-grid__label {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  font-weight: 650;
+}
+
+@media (max-height: 680px) {
+  .featured-item {
+    min-height: 88rpx;
+  }
+}

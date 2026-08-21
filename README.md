@@ -13,16 +13,19 @@
 
 > 当前支付流程仅用于 Demo 演示，不会产生真实扣款。
 
+仓库中的社区、房屋、用户、账单和回执均为明确标注的模拟数据，不对应任何真实主体或物业记录。
+
 ## 项目结构
 
 ```text
 miniprogram/     原生微信小程序页面、组件、状态机与测试
 cloudfunctions/  AI 意图理解网关（支持 OpenAI-compatible 接口）
 design/          高保真页面的 HTML/CSS 与设计资源
-artifacts/       低保真、概念图和可编辑高保真产物
 docs/            产品流程、实现边界和验收说明
 scripts/         OpenPencil 设计构建与导出脚本
 ```
+
+`artifacts/` 用于存放本地生成的概念图、高保真导出图和 `.fig` 文件，不作为代码提交。
 
 ## 本地运行
 
@@ -42,6 +45,12 @@ scripts/         OpenPencil 设计构建与导出脚本
 
 本地确定性 Demo 不依赖模型即可走通查账、确认和模拟支付主流程。
 
+如需重新生成 OpenPencil 高保真文件，可运行：
+
+```powershell
+npm run design:build
+```
+
 ## 可选模型配置
 
 云函数 `cloudfunctions/aiGateway` 通过环境变量读取模型配置：
@@ -56,4 +65,3 @@ scripts/         OpenPencil 设计构建与导出脚本
 
 - [Demo 运行与验收](docs/Demo运行与验收说明.md)
 - [产品流程与实现边界](docs/产品流程与Demo实现边界.md)
-

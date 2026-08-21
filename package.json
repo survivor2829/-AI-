@@ -1,0 +1,16 @@
+{
+  "name": "property-ai-agent-demo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "demo:test": "node --test --test-isolation=none miniprogram/tests/assistant-page.test.js miniprogram/tests/demo-flow.test.js miniprogram/tests/structure.test.js",
+    "design:build": "node scripts/build-openpencil-design.mjs",
+    "design:export": "node scripts/openpencil-export-png.mjs artifacts/design/鱼水和AI物业助手-B高保真.fig -s 1 -o artifacts/design/鱼水和AI物业助手-B高保真.png",
+    "design:lint": "node scripts/openpencil-node.mjs lint artifacts/design/鱼水和AI物业助手-B高保真.fig --rule color-contrast --json",
+    "design:lint:full": "node scripts/openpencil-node.mjs lint artifacts/design/鱼水和AI物业助手-B高保真.fig --preset recommended"
+  },
+  "devDependencies": {
+    "@open-pencil/cli": "^0.14.0",
+    "remixicon": "^4.9.1"
+  }
+}

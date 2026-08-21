@@ -1,0 +1,34 @@
+<view class="composer {{large ? 'composer--large' : ''}}">
+  <input
+    class="composer__input"
+    value="{{value}}"
+    placeholder="{{placeholder}}"
+    placeholder-class="composer__placeholder"
+    confirm-type="send"
+    cursor-spacing="24"
+    disabled="{{disabled}}"
+    bindinput="onInput"
+    bindfocus="onFocus"
+    bindconfirm="onConfirm"
+  />
+  <view class="composer__actions">
+    <view
+      class="composer__icon {{voiceState !== 'idle' ? 'composer__icon--active' : ''}}"
+      role="button"
+      aria-disabled="{{disabled}}"
+      aria-label="语音输入"
+      catchtap="onVoiceTap"
+    >
+      <image class="composer__icon-image" src="/assets/icons/mic.svg" mode="aspectFit" />
+    </view>
+    <view
+      class="composer__send {{disabled || !value ? 'composer__send--disabled' : ''}}"
+      role="button"
+      aria-disabled="{{disabled || !value}}"
+      aria-label="发送"
+      catchtap="onSendTap"
+    >
+      <image class="composer__send-image" src="/assets/icons/send.svg" mode="aspectFit" />
+    </view>
+  </view>
+</view>
